@@ -1,0 +1,29 @@
+clinic_id,name,city,kind,district,opens_at,closes_at,has_pharmacy
+PUN-H01,Sahyog Hospital Baner,Pune,hospital,Pune,08:00,20:00,true
+PUN-H02,Sahyog Hospital Kothrud,Pune,hospital,Pune,08:00,20:00,true
+PUN-H03,Sahyog Hospital Hadapsar,Pune,hospital,Pune,08:00,20:00,true
+PUN-C01,Sahyog Clinic Aundh,Pune,clinic,Pune,09:00,18:00,true
+PUN-C02,Sahyog Clinic Wakad,Pune,clinic,Pune,09:00,18:00,true
+PUN-C03,Sahyog Clinic Viman Nagar,Pune,clinic,Pune,09:00,18:00,true
+PUN-C04,Sahyog Clinic Kharadi,Pune,clinic,Pune,09:00,18:00,false
+PUN-C05,Sahyog Clinic Shivajinagar,Pune,clinic,Pune,09:00,18:00,true
+PUN-C06,Sahyog Clinic Pimpri,Pune,clinic,Pune,09:00,18:00,true
+PUN-C07,Sahyog Clinic Chinchwad,Pune,clinic,Pune,09:00,18:00,false
+PUN-C08,Sahyog Clinic Katraj,Pune,clinic,Pune,09:00,18:00,true
+PUN-C09,Sahyog Clinic Hinjewadi,Pune,clinic,Pune,09:00,18:00,false
+PUN-C10,Sahyog Clinic Kondhwa,Pune,clinic,Pune,09:00,18:00,true
+PUN-C11,Sahyog Clinic Magarpatta,Pune,clinic,Pune,09:00,18:00,false
+HYD-H01,Sahyog Hospital Gachibowli,Hyderabad,hospital,Rangareddy,08:00,20:00,true
+HYD-H02,Sahyog Hospital Banjara Hills,Hyderabad,hospital,Hyderabad,08:00,20:00,true
+HYD-H03,Sahyog Hospital Secunderabad,Hyderabad,hospital,Hyderabad,08:00,20:00,true
+HYD-C01,Sahyog Clinic Kukatpally,Hyderabad,clinic,Medchal-Malkajgiri,09:00,18:00,true
+HYD-C02,Sahyog Clinic Madhapur,Hyderabad,clinic,Rangareddy,09:00,18:00,true
+HYD-C03,Sahyog Clinic Ameerpet,Hyderabad,clinic,Hyderabad,09:00,18:00,true
+HYD-C04,Sahyog Clinic Begumpet,Hyderabad,clinic,Hyderabad,09:00,18:00,false
+HYD-C05,Sahyog Clinic Kondapur,Hyderabad,clinic,Rangareddy,09:00,18:00,true
+HYD-C06,Sahyog Clinic Miyapur,Hyderabad,clinic,Medchal-Malkajgiri,09:00,18:00,false
+HYD-C07,Sahyog Clinic Dilsukhnagar,Hyderabad,clinic,Rangareddy,09:00,18:00,true
+HYD-C08,Sahyog Clinic LB Nagar,Hyderabad,clinic,Rangareddy,09:00,18:00,false
+HYD-C09,Sahyog Clinic Uppal,Hyderabad,clinic,Medchal-Malkajgiri,09:00,18:00,true
+HYD-C10,Sahyog Clinic Mehdipatnam,Hyderabad,clinic,Hyderabad,09:00,18:00,true
+HYD-C11,Sahyog Clinic Jubilee Hills,Hyderabad,clinic,Hyderabad,09:00,18:00,false

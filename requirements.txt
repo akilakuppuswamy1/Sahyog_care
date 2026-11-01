@@ -1,0 +1,8 @@
+# Pinned after our own check on 2026-11-02 where marked; others follow the pack's p.39 pins.
+pydantic==2.13.5          # checked 2026-11-02 (installed version)
+pandas>=2.3               # checked 2026-11-02
+pytest>=8                 # checked 2026-11-02
+psycopg[binary]>=3.2      # DB tests; not verified here (PyPI unreachable from the build sandbox)
+presidio-analyzer==2.2.364   # pack p.39; transcription scrub
+presidio-anonymizer       # version to pin after our own check
+kaggle                    # dataset download

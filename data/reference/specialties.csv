@@ -1,0 +1,39 @@
+specialty_id,name,hospital_only,extra_doctors
+SP01,General Medicine,false,25
+SP02,Family Medicine,false,0
+SP03,Cardiology,false,10
+SP04,Cardiothoracic Surgery,true,0
+SP05,Neurology,false,0
+SP06,Neurosurgery,true,0
+SP07,Orthopaedics,false,15
+SP08,Physiotherapy,false,0
+SP09,Rheumatology,false,0
+SP10,Gastroenterology,false,7
+SP11,Hepatology,true,0
+SP12,General Surgery,true,0
+SP13,Pulmonology,false,0
+SP14,Nephrology,true,0
+SP15,Urology,false,0
+SP16,Endocrinology,false,0
+SP17,Obstetrics and Gynaecology,false,15
+SP18,Paediatrics,false,15
+SP19,Neonatology,true,0
+SP20,Dermatology,false,10
+SP21,Ophthalmology,false,8
+SP22,ENT,false,8
+SP23,Psychiatry,false,0
+SP24,Clinical Psychology,false,0
+SP25,Medical Oncology,true,0
+SP26,Surgical Oncology,true,0
+SP27,Radiation Oncology,true,0
+SP28,Haematology,true,0
+SP29,Infectious Diseases,false,0
+SP30,Allergy and Immunology,false,0
+SP31,Dentistry,false,7
+SP32,Plastic Surgery,true,0
+SP33,Vascular Surgery,true,0
+SP34,Geriatrics,false,0
+SP35,Pain Medicine,false,0
+SP36,Sports Medicine,false,0
+SP37,Dietetics and Nutrition,false,0
+SP38,Sleep Medicine,false,0

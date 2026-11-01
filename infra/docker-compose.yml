@@ -1,0 +1,24 @@
+# Local stack. Step 2 brings up the database only; services are added as they are built.
+# Usage (from the repo root):  docker compose -f infra/docker-compose.yml up -d db
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: sahyog
+      POSTGRES_PASSWORD: sahyog_local_only   # local dev only; never a real secret (house rule: no secrets in repo)
+      POSTGRES_DB: sahyog
+    ports:
+      # Host port is configurable: DB_PORT=56000 docker compose ... up -d db
+      # Default 55432 avoids clashing with a native Postgres (5432) or other local services.
+      - "${DB_PORT:-55432}:5432"
+    volumes:
+      - ./db/000_extensions.sql:/docker-entrypoint-initdb.d/000_extensions.sql:ro
+      - ./db/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - pgdata:/var/lib/postgresql/data
+      - ..:/repo:ro          # lets 002_load_generated.sql \copy the CSVs from inside the container
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sahyog -d sahyog"]
+      interval: 5s
+      retries: 10
+volumes:
+  pgdata:

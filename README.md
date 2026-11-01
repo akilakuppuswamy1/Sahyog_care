@@ -1,0 +1,68 @@
+# Sahyog Care Companion
+
+A privacy-compliant agentic platform for Sahyog Health Network. The client is fictional.
+
+The platform has three workflows:
+- **W1 Find my doctor:** triage, red-flag gate and booking
+- **W2 My records:** ingest and cited Q&A
+- **W3 Scribe:** SOAP draft and doctor sign-off
+
+Stack: LangGraph 1.2 · Postgres + pgvector · FastAPI · MCP.
+
+**Tier reached:** _not yet. Discovery is drafted and the data estate is built (step 2)._
+
+## Layout (deck p.48)
+```
+docs/       prd-lite.md · rfp-response.md · adr/ · diagrams/
+            task-cards.md (D1) · discovery-questions.md (D2)
+            assumptions.md (D3) · data-contracts/ (D4)
+data/       inventory.md · inventory.py · transforms/ · synthetic/prompts/ · raw/ (git-ignored)
+services/   agent/ · scheduling/ · records/ · scribe/
+evals/      sets/ · runs/ · report.md
+infra/      docker-compose.yml · deployment-adr.md
+memo/       executive-memo.md
+AI-COLLABORATION.md
+```
+
+## Quick start (Windows PowerShell or bash, from the repo root)
+```bash
+python -m venv .venv && .venv\Scripts\activate      # bash: source .venv/bin/activate
+pip install -r requirements.txt
+docker compose -f infra/docker-compose.yml up -d db   # Postgres 16 + pgvector; schema applied on first start
+python data/synthetic/generate_doctors.py            # 500 doctors
+python data/synthetic/generate_slots.py              # 480,000 slots
+docker compose -f infra/docker-compose.yml exec -w /repo db psql -U sahyog -d sahyog -v ON_ERROR_STOP=1 -f infra/db/002_load_generated.sql
+```
+The repo is mounted read-only at `/repo` inside the db container, so you don't need a local `psql`.
+
+The database listens on host port **55432** (not 5432, which a native Postgres often holds). If 55432 is busy too,
+pick another: `$env:DB_PORT = "56000"` before `docker compose ... up -d db`, and use the same port in DATABASE_URL.
+Check a port with `Get-NetTCPConnection -LocalPort 55432 -ErrorAction SilentlyContinue` (no output means free).
+
+Run the tests (the database tests run only when DATABASE_URL is set):
+```bash
+$env:DATABASE_URL = "postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog"   # bash: export DATABASE_URL=...
+pytest
+```
+
+## Getting the data
+1. Create a Kaggle API token and place it at `~/.kaggle/kaggle.json`.
+2. Run:
+   ```bash
+   pip install kaggle
+   for s in joniarroba/noshowappointments tboyle10/medicaltranscriptions \
+            itachi9604/disease-symptom-description-dataset \
+            shudhanshusingh/az-medicine-dataset-of-india prasad22/healthcare-dataset; do
+     kaggle datasets download -d "$s" -p "data/raw/${s#*/}" --unzip
+   done
+   python data/inventory.py
+   python -m data.transforms.run_all      # writes data/clean/ and tallies.json
+   ```
+3. Paste the counts and licences into `data/inventory.md`.
+
+## Discovery checklist (deck p.10)
+- [ ] D1: 12 client tasks plus at least 6 team tasks, each on a rung (`docs/task-cards.md`)
+- [ ] D2: 10 questions posted and answered (`docs/discovery-questions.md`)
+- [ ] D3: at least 8 rows, each with an owner, a validation and a fallback (`docs/assumptions.md`)
+- [ ] Data inventory with exact row counts and licences
+- [ ] Repository in the p.48 structure
