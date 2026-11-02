@@ -32,6 +32,7 @@ def _present_and_pick(s: W1State) -> W1State:
 
 def build_w1(llm: JsonLLM, store: Store) -> StateGraph:
     g = StateGraph(W1State)
+    g.add_node("redirect_records", n.redirect_records)
     g.add_node("intake", n.intake)
     g.add_node("detect_language", n.detect_language)
     g.add_node("red_flag_rules", n.red_flag_rules)
@@ -49,7 +50,7 @@ def build_w1(llm: JsonLLM, store: Store) -> StateGraph:
     g.add_edge("detect_language", "red_flag_rules")
     # Rules first. If any rule fires, no model is ever called on this run.
     g.add_conditional_edges("red_flag_rules", n.after_red_flags,
-                            {"handoff": "er_handoff", "continue": "model_checks"})
+                            {"handoff": "er_handoff", "continue": "model_checks", "redirect_records": "redirect_records"})
     g.add_conditional_edges("model_checks", n.after_model_checks,
                             {"handoff": "er_handoff", "book": "shortlist", "clarify": "clarify",
                              "front_desk": "front_desk"})
@@ -62,6 +63,7 @@ def build_w1(llm: JsonLLM, store: Store) -> StateGraph:
     g.add_edge("er_handoff", END)
     g.add_edge("front_desk", END)
     g.add_edge("notify", END)
+    g.add_edge("redirect_records", END)
     return g
 
 

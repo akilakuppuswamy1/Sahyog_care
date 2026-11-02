@@ -36,3 +36,21 @@ keeps submitting the paused booking, so further triage reads do not obscure the
 booking limit. With defaults and sufficient capacity, expect about 20 successes
 and 980 responses with status 429. The probe fails explicitly on setup failures,
 such as exhausted appointment capacity or a non-pick-slot interrupt.
+
+
+## Front desk and uploads
+
+Demo staff tokens `Bearer demo-staff-<STAFF_ID>` have role `front_desk` only with `SAHYOG_DEMO_AUTH=1`. Patient and staff API routes reject the other role with 403. `GET /frontdesk` serves the demo shell with staff authentication. Open `/?view=frontdesk` to load the public shell and enter the staff ID; all data requests require staff authentication.
+
+| Route | Role | Control |
+|---|---|---|
+| GET /frontdesk | front_desk | Audited staff demo page |
+| GET /frontdesk/escalations?status=open | front_desk | Audited queue from W1 audit hand-offs |
+| POST /frontdesk/escalations/{id}/handled | front_desk | Idempotency-Key required; handling stored separately from immutable audit |
+| GET /frontdesk/bookings?booked_by=assistant | front_desk | Audited appointment, slot, doctor, clinic, ISO and IST time |
+| POST /frontdesk/bookings/{appt_id}/cancel | front_desk | Idempotency-Key required; old row overridden, capacity released |
+| POST /frontdesk/bookings/{appt_id}/move | front_desk | Body `{slot_id}`; required Idempotency-Key; atomic override and book_slot with front_desk attribution |
+| POST /records/upload | patient | Required Idempotency-Key; current user only, multipart PDF magic and 10 MB limit; 202 queued |
+| GET /records/documents | patient | Own documents only; status/error and ISO plus IST upload time |
+
+Core ingestion runs in a FastAPI in-process background task with the startup-loaded embedder. Pro moves it to a queue with a job id. Restarting Core can interrupt a pending upload. Uploads use the fixture ingestion guards, including identity stripping and injection flags.

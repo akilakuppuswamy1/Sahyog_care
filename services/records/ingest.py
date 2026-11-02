@@ -42,7 +42,7 @@ def register(conn, m: dict) -> None:
     conn.execute("""INSERT INTO document (doc_id, patient_id, type, uri, title, report_date, ingest_status, synthetic)
                     VALUES (%s,%s,%s,%s,%s,%s,'queued',true)
                     ON CONFLICT (doc_id) DO UPDATE SET ingest_status = 'queued', error = NULL""",
-                 (m["doc_id"], m["patient_id"], m["type"], f"file://reports/{m['file']}", m["title"], m["date"]))
+                 (m["doc_id"], m["patient_id"], m["type"], m.get("uri", f"file://reports/{m['file']}"), m["title"], m["date"]))
     audit(conn, "write", "document", m["doc_id"], m["patient_id"], "upload", {"status": "queued"})
 
 
@@ -51,7 +51,7 @@ def ingest_one(conn, m: dict, embedder: Embedder) -> dict:
     register(conn, m)
     set_status(conn, doc_id, "parsing")
     try:
-        pages = read_pdf_pages(REPORTS / m["file"])
+        pages = read_pdf_pages(Path(m["path"]) if "path" in m else REPORTS / m["file"])
         chunks, needs_ocr = chunk_document(doc_id, pages)
         if needs_ocr and not chunks:
             set_status(conn, doc_id, "failed", f"scanned pages {needs_ocr} need OCR (not available at Core tier)")

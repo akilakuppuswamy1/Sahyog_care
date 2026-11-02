@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 W1 = ROOT / "evals" / "sets" / "w1_triage.jsonl"
 SPECIALTIES = {r["specialty_id"] for r in csv.DictReader((ROOT / "data/reference/specialties.csv").open())}
-ROUTES = {"emergency_desk", "crisis_line", "book", "clarify"}
+ROUTES = {"emergency_desk", "crisis_line", "book", "clarify", "redirect_records"}
 
 
 @pytest.fixture(scope="module")

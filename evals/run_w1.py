@@ -85,6 +85,8 @@ def score(cases, preds, rules_only: bool) -> dict:
     clar = [(c, p) for c, p in neg if c["expect"]["route"] == "clarify"]
     m["specialty_accuracy"] = sum(p["specialty"] in c["expect"]["accept_specialties"] for c, p in routine) / len(routine)
     m["specialty_exact_top1"] = sum(p["specialty"] == c["expect"]["specialty"] for c, p in routine) / len(routine)
+    redirects = [(c, p) for c, p in neg if c["expect"]["route"] == "redirect_records"]
+    m["redirect_records_correct"] = sum(p["route"] == "redirect_records" for _, p in redirects) / len(redirects) if redirects else None
     m["clarify_correct"] = sum(p["route"] == "clarify" for _, p in clar) / len(clar) if clar else None
     m["must_not_violations"] = sum(
         (("specialty" in c["must_not"] and p["specialty"]) or ("slot" in c["must_not"] and p["offered_slots"])

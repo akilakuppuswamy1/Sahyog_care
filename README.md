@@ -47,6 +47,10 @@ pytest
 
 ### Run the app
 
+- Front desk: apply `infra/db/005_frontdesk.sql`, open `/?view=frontdesk` (the staff shell; `/frontdesk` also serves it with a staff bearer header), and use a staff ID (`Bearer demo-staff-FD01`, demo auth only) to review hand-offs and override bookings.
+- Upload: in **My records**, choose **Upload a report** (text PDF, up to 10 MB); the status list polls every two seconds until indexed or failed. Uploads are stored in git-ignored `data/uploads/`.
+
+
 After the database setup and W2 fixture ingestion below, run locally from the activated venv:
 
 ```powershell

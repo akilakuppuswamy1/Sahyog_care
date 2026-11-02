@@ -10,6 +10,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypedDict
 
+from services.common.timefmt import ist
 from services.agent.llm import JsonLLM
 from services.agent.store import SlotFull, Store
 from services.agent.w1 import matcher, redflags
@@ -61,7 +62,21 @@ def detect_language(s: W1State) -> W1State:
 
 def red_flag_rules(s: W1State) -> W1State:
     r = redflags.evaluate(s["text"], s.get("age"))
+    if not r.fired and records_question(s["text"]):
+        return {"red_flags": [], "route": "redirect_records"}
     return {"red_flags": list(r.fired), "route": r.route}
+
+
+SYMPTOMS = re.compile(r"\b(pain|ache|aching|fever|cough|breath|bleed|dizz|vomit|nausea|weak|swell|rash|headache|numb|seizure|faint|suicid|hurt|dard|bukhar|khansi|saans|chakkar|tired|fatigue|itch|diarrh|constipat|palpitation|burning|injur|fracture|sore|depress|anxi|confus|blur|unconscious)\w*\b", re.I)
+RECORDS = re.compile(r"\b(hba1c|reports?|records?|x[ -]?ray|blood test|lab results?|haemoglobin|hemoglobin|sgpt)\b", re.I)
+
+
+def records_question(text):
+    return bool(RECORDS.search(text) and not SYMPTOMS.search(text))
+
+
+def redirect_records(s):
+    return {"route": "redirect_records", "reply": "That sounds like a question about your reports. Ask it under My records.", "specialty": None, "candidates": []}
 
 
 def red_flag_net(s: W1State, llm: JsonLLM) -> W1State:
@@ -86,7 +101,7 @@ def after_model_checks(s: W1State) -> str:
 
 
 def after_red_flags(s: W1State) -> str:
-    return "handoff" if s.get("red_flags") else "continue"
+    return "handoff" if s.get("red_flags") else ("redirect_records" if s.get("route") == "redirect_records" else "continue")
 
 
 def er_handoff(s: W1State, tools: Store) -> W1State:
@@ -168,7 +183,7 @@ def after_book(s: W1State) -> str:
 
 def notify(s: W1State, tools: Store) -> W1State:
     c = next(c for c in s["candidates"] if c["slot_id"] == s["chosen_slot"])
-    text = f"Sahyog: your appointment with {c['doctor_name']} at {c['clinic']} is confirmed for {c['starts_at']}."
+    text = f"Sahyog: your appointment with {c['doctor_name']} at {c['clinic']} is confirmed for {ist(c['starts_at'])}."
     tools.audit("write", "sms_outbox", s["booking_id"], s["patient_id"], "booking_confirmation", s["trace_id"],
                 {"template": "booking_confirmed_v1"})     # the SMS text itself goes via the relay, not the audit
     return {"reply": text, "route": "book"}

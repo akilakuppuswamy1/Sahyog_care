@@ -120,6 +120,8 @@ class InMemoryStore:
         if slot_id in self.booked or slot_id not in {d["slot_id"] for d in self.doctors}:
             raise SlotFull(f"slot {slot_id} is full or does not exist")
         appt = str(uuid.uuid4())
+        if not hasattr(self, "appointments"): self.appointments = {}
+        self.appointments[appt] = dict(appt_id=appt, patient_id=patient_id, slot_id=slot_id, status="booked", booked_by="assistant")
         self.booked[slot_id] = appt
         self.keys[(patient_id, idempotency_key)] = appt
         return appt
