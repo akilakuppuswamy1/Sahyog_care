@@ -5,6 +5,7 @@ ledger entries commit together. A session lock serializes concurrent starters.
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -64,12 +65,22 @@ def migrate(conn, directory=ROOT / "infra/db"):
 
 
 def seed_records(conn):
-    from services.records.ingest import REPORTS, ingest_one, load_patients
+    from services.records.ingest import REPORTS, ingest_one
     from services.records.embed import BgeM3Embedder
-    # Do not reset existing consent expiry on each restart.
-    if not conn.execute("SELECT 1 FROM patient WHERE patient_id='PT-W2-0001'").fetchone():
-        with conn.transaction():
-            load_patients(conn)
+    # Fill partial fixture cohorts without renewing existing or expired consents.
+    with conn.transaction():
+        with (REPORTS / "patients.csv").open(encoding="utf-8") as stream:
+            for row in csv.DictReader(stream):
+                conn.execute("""INSERT INTO patient(patient_id,name,dob,phone,language,synthetic)
+                                VALUES (%s,%s,%s,%s,%s,true) ON CONFLICT (patient_id) DO NOTHING""",
+                             tuple(row[k] for k in ("patient_id", "name", "dob", "phone", "language")))
+        with (REPORTS / "consents.csv").open(encoding="utf-8") as stream:
+            for row in csv.DictReader(stream):
+                conn.execute("""INSERT INTO consent(patient_id,grantee_id,scope,purpose,granted_at,expires_at)
+                                SELECT %s,%s,%s,%s,now()-interval '60 days',now()+make_interval(days => %s)
+                                WHERE NOT EXISTS (SELECT 1 FROM consent WHERE patient_id=%s AND grantee_id=%s)""",
+                             (row["patient_id"], row["grantee_id"], row["scope"], row["purpose"],
+                              int(row["expires_in_days"]), row["patient_id"], row["grantee_id"]))
     manifest = [json.loads(line) for line in (REPORTS / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if line]
     missing = [m for m in manifest if m["doc_id"].startswith("DOC-W2-") and not conn.execute(
         "SELECT 1 FROM document WHERE doc_id=%s AND ingest_status='indexed'", (m["doc_id"],)).fetchone()]

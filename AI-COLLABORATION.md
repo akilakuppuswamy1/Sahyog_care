@@ -189,3 +189,21 @@ notes:
 - What the agent got wrong: first execution used the workspace venv inside the sandbox, which denied access to its base Python interpreter; the tool error exposed this and the offline exporter/test commands succeeded after execution approval. A first metadata-query command lost quotes through Windows native argument handling; its SyntaxError was corrected by piping a Python source block to stdin. Neither failed attempt read application data or `.env`.
 - Verification corrected prospective claims: SMS is an audit intent, not a delivery outbox; W2 is not wired to a Postgres checkpointer; note signer equality is not authentication; regex egress is not full de-identification. No production claims were made for Presidio, re-identification, 200-payload replay, OTP, storage encryption, least-privilege roles or India hosting. The deck itself was unavailable for independent artwork/page verification; pack comparisons use the task and existing repo records.
 - Read-only local role inventory (55432): only non-system role `sahyog`, with LOGIN/SUPERUSER/CREATEROLE/CREATEDB. Full `python -m pytest` with the specified 55432 DATABASE_URL and `PYTHON_DOTENV_DISABLED=1`: **240 passed, 13 warnings in 30.14s** (0 failed, no skips; warnings are dependency deprecations).
+
+### PR #11 — Core part 2: evidence report, RFP and one-command startup — 2026-11-02
+agent: Codex (GPT-6)
+proposed:
+- Offline `tools/build_eval_report.py`, generated `evals/report.md`, and a two-fake-run regression covering latest-run selection, history, measured token averages and optional prices.
+- Seven-question `docs/rfp-response.md`, with implementation paths, bounded proof and explicit Core/Pro/Architect gaps.
+- Shared Python 3.14 API/migrate image, migration ledger with transactional COPY adaptation and startup dependency; missing doctor/slot/report generation, fixture ingest, and patient/consent restart recovery without extending consent expiry.
+- Separate cached torch/pip build layers, README Core tier and three-step Start, and evidence-based discovery checkboxes; D2 and incomplete inventory licences remain unticked.
+- Isolated PostgreSQL regression for COPY, idempotence, rollback, partial fixture cohorts and unchanged consent expiry.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- What the agent got wrong: initially used `python`, absent from PATH; shell output caught it. The venv base interpreter then hit sandbox access denial; execution approval allowed the offline generator and tests. An interrupted turn lost the first test session, so the full suite was rerun rather than claiming a missing result.
+- Review caught two incorrect evidence paths (`guards.py` and `redflags.py` live under `services/agent/w1/`) and a first-patient-only bootstrap check that missed partial cohorts. Paths were corrected; the bootstrap now inserts missing patients and preserves existing consent expiry, covered by `infra/db/tests/test_migrate.py::test_migrations_copy_rollback_and_restart`.
+- No `.env` was read, printed or edited; no eval runner, OpenRouter call or Docker build ran. Compose config passed with `--env-file NUL`, `COMPOSE_DISABLE_ENV_FILE=1`, `--no-env-resolution`, `--no-interpolate`, and `--quiet` to avoid dotenv access. Container startup itself was not executed, as requested.
+- Saved runs supply every headline and token number; calibrated faithfulness, end-to-end booking, W3 timing, availability, restore, full residency/retention and exhaustive audit/crash proof remain explicit gaps. Page 16/34 requirements use the supplied task; the source deck was not independently available. Pip caching does not guarantee byte-range resume of every interrupted download.
+- Verification: full `python -m pytest` with `DATABASE_URL=postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog` and `PYTHON_DOTENV_DISABLED=1`: **242 passed, 13 warnings in 48.99s**; no failures or skips. Warnings are dependency deprecations. Compose config validation passed (exit 0). Human review fields intentionally unfilled.

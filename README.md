@@ -9,7 +9,7 @@ The platform has three workflows:
 
 Stack: LangGraph 1.2 · Postgres + pgvector · FastAPI · MCP.
 
-**Tier reached:** _not yet. Discovery is drafted and the data estate is built (step 2)._
+**Tier reached: Core (pending the day-8 change request and the demo recording)**
 
 ## Layout (deck p.48)
 ```
@@ -24,7 +24,15 @@ memo/       executive-memo.md
 AI-COLLABORATION.md
 ```
 
-## Quick start (Windows PowerShell or bash, from the repo root)
+## Start
+
+1. Copy `.env.example` to `.env` and add your key.
+2. Run `docker compose -f infra/docker-compose.yml --profile app up -d --build`.
+3. Open http://localhost:8000.
+
+The shared Python 3.14 image runs migrations and W2 fixture ingest before the API starts. First startup downloads local bge-m3. BuildKit caches pip downloads between builds; interrupted downloads may still need to restart.
+
+## Local development (Windows PowerShell or bash, from the repo root)
 ```bash
 python -m venv .venv && .venv\Scripts\activate      # bash: source .venv/bin/activate
 pip install -r requirements.txt
@@ -85,11 +93,11 @@ Compose supplies the demo auth flag and database URL, and optionally loads the e
 3. Paste the counts and licences into `data/inventory.md`.
 
 ## Discovery checklist (deck p.10)
-- [ ] D1: 12 client tasks plus at least 6 team tasks, each on a rung (`docs/task-cards.md`)
+- [x] D1: 12 client tasks plus at least 6 team tasks, each on a rung (`docs/task-cards.md`)
 - [ ] D2: 10 questions posted and answered (`docs/discovery-questions.md`)
-- [ ] D3: at least 8 rows, each with an owner, a validation and a fallback (`docs/assumptions.md`)
+- [x] D3: at least 8 rows, each with an owner, a validation and a fallback (`docs/assumptions.md`)
 - [ ] Data inventory with exact row counts and licences
-- [ ] Repository in the p.48 structure
+- [x] Repository in the p.48 structure
 ## W1 Find my doctor (step 4)
 ```powershell
 copy .env.example .env        # then fill OPENROUTER_API_KEY, OPENROUTER_MODEL, DATABASE_URL (your port)
