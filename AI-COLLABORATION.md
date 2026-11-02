@@ -89,7 +89,10 @@ notes:
 - **Not run by the agent:** the LangGraph graph tests and the OpenRouter eval. PyPI was blocked in the agent's
   sandbox, so only the framework-free logic (rules, guards, nodes, scoring) was tested there. First run on the pod machine is the real test.
 - **Withheld from the reply:** the pack's "a nurse will call within two minutes" (p.14), until D2 Q1 / D3 A09 confirm staffing.
-- OpenRouter model chosen: _fill in model id + date_
+- OpenRouter model chosen: qwen/qwen3-235b-a22b-2507 (2026-11-02).
+- **Negation safety regression:** negation could bleed into later clauses and suppress an emergency flag. The held-out tests now include both "not feeling well crushing chest pain ..." and "Not feeling well. Chest pain with sweating ..." and assert a red flag.
+- **Model trial:** qwen3-30b had clarify accuracy 0.0 and two red-flag false alarms in the graph run; qwen3-235b was retained.
+- **Latency miss reported:** p95 fell from 38.53 s to 9.63 s after parallel model checks, a token cap, and provider sorting, but remained above the 4 s target.
 ### PR #5 — W2 My records (days 8-9) — 2026-11-02
 agent: Claude (Opus 5.5), chat session (no access to the pod machine; delivered as a zip)
 proposed:
@@ -115,3 +118,74 @@ notes:
 - **Not run by the agent:** pgvector, bge-m3, LangGraph and OpenRouter (no PyPI or Postgres extension in its sandbox).
   The first real run of the W2 graph and the DB tests is on the pod machine.
 - **To tune on the eval set:** V_MIN = 0.45 (the "relevant context" threshold) and the abbreviation map.
+- **First pod eval (110626):** route accuracy 1.0 and zero scope leaks, but content_hit was 0.824. Cases w2-002 and w2-006 got bare yes/no replies; w2-011's fallback showed only the final line.
+- **False confidence in the blood-pressure test:** a fake model error made the unit test pass without proving the relevance gate. On Postgres, any keyword hit (including "COMPLETE BLOOD COUNT") counted as relevant. The gate now scores topic coverage, and the graph test uses a scripted model that answers.
+- **Verifier miss:** the 122732 run had verified_rate 0.824 because the dose pattern matched lab units such as "238 mg/dL"; a lookahead now excludes mg/dL and regression cases cover lab units. The guard's missed "this could be hepatitis" wording was also added to its diagnosis tests.
+- **Final W2 run (150927):** route accuracy, content_hit, and verified_rate were all 1.0, with zero scope leaks and p95 latency 2.15 s. W2 uses qwen3-30b via `OPENROUTER_MODEL_W2`; the run artifacts identify local BAAI/bge-m3 embeddings.
+- **Embedding-check design error:** the agent first compared question-to-question vectors, which did not test retrieval. The pod redid the check as question-to-document; all phrasings, including Hinglish, ranked the correct report first.
+- **Partial patch extraction:** an incompletely extracted zip left `nodes.py` new and `retrieve.py` old, causing an ImportError on pytest. Afterward, Codex applied changes from written prompts instead of zips and verified them with the full test run.
+- **Environment/reproducibility incident:** Docker Desktop failed with HTTP 500 and was reinstalled per-user with WSL 2. The database volume was lost and rebuilt from migrations 001-004 plus fixture ingest, confirming the schema could be reconstructed from the repository.
+
+### PR #6 — API: W1/W2 service and deployment — 2026-11-02 (ab73a52)
+agent: Coding agent (tool/model not recorded in the commit)
+proposed:
+- FastAPI endpoints and a browser demo for W1/W2
+- Idempotency keys, rate limits, JSON request logs, a Docker API service, and a deployment ADR
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- The launch instructions include `python -m uvicorn services.api.main:app --port 8000`.
+
+### PR #7 — Core E2/E3: front desk and PDF upload — 2026-11-02 (d6a90a8)
+agent: Coding agent (tool/model not recorded in the commit)
+proposed:
+- Front-desk queue and booking overrides
+- PDF upload with ingest status, records-question redirect, and IST display times
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- The commit adds front-desk and upload routes, UI, database migration, and PostgreSQL upload tests.
+
+### PR #8 — W1 retry incident fix — 2026-11-02 (07d0b8a)
+agent: Coding agent (Codex investigated the incident; model not recorded)
+proposed:
+- Reserve a durable W1 thread ID per (user, idempotency key) and replay the current thread/checkpoint for duplicate requests.
+- Remove automatic browser retries; poll known thread IDs and cover concurrent replays in tests.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- **Incident:** an automatic demo retry replayed an 11.6 s W1 triage POST; the replay returned `thread_id: null`, then a slot click got 409 "Thread is not paused". JSON request logs exposed it; tests did not retry. Codex's first pool-row-factory diagnosis did not reproduce it.
+- The commit adds durable idempotency, polling support, and concurrent replay tests. Environment slips: bare `uvicorn` used the global Python without `psycopg_pool`, so the documented command uses `python -m uvicorn`; production dependencies load `.env`, while test dependencies do not.
+Steering-review answer: the agent misled us by adding an automatic client retry; request logs exposed the replay and tests initially missed it.
+
+### PR #9 — Agent house rules and collaboration log catch-up — 2026-11-02
+agent: Copilot SDK assistant (model not recorded)
+proposed:
+- Add repository-wide coding-agent rules in `AGENTS.md` and the `CLAUDE.md` pointer.
+- Catch up the existing W1/W2 entries and add one entry for each unlogged API commit group, including the incident fix.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- Documentation-only changes; no code, tests, or data were changed. Unrelated untracked worktree files were left untouched. No `.env` was read.
+
+### PR #10 — W2 pod findings added to collaboration log — 2026-11-02
+agent: Copilot SDK assistant (model not recorded); Codex (GPT-6) for architecture v2 and D7
+proposed:
+- Add the pod's embedding-check correction, partial-zip ImportError, and Docker/DB rebuild evidence to the existing W2 entry.
+- Architecture pack v2: context, containers, SQL-derived entity model, compiled W1/W2 exports, W3 Pro design and two sequences; code-verified corrections and ADR/D6/D7 links.
+- Offline `tools/export_graphs.py` and subprocess regression `services/agent/tests/test_export_graphs.py::test_export_compiled_graphs`.
+- D7 STRIDE controls linked to existing tests, explicit missing-control tiers, and a read-only local DB role inventory/access-review target.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- Documentation-only update based on pod findings supplied in chat; no code, tests, or data changed. `.env` was not read.
+- Architecture/D7 extension: docs, one exporter script and its requested test only; service implementation unchanged. No `.env` read/print, OpenRouter call, eval run or Docker build. The full suite reads eval fixtures as tests but does not execute eval runners.
+- Guidance timing: `AGENTS.md` was absent at the initial workspace/ancestor search and appeared during this task; it was read when discovered. This open entry was updated rather than adding another PR entry. Human accepted/rejected/why fields remain untouched.
+- What the agent got wrong: first execution used the workspace venv inside the sandbox, which denied access to its base Python interpreter; the tool error exposed this and the offline exporter/test commands succeeded after execution approval. A first metadata-query command lost quotes through Windows native argument handling; its SyntaxError was corrected by piping a Python source block to stdin. Neither failed attempt read application data or `.env`.
+- Verification corrected prospective claims: SMS is an audit intent, not a delivery outbox; W2 is not wired to a Postgres checkpointer; note signer equality is not authentication; regex egress is not full de-identification. No production claims were made for Presidio, re-identification, 200-payload replay, OTP, storage encryption, least-privilege roles or India hosting. The deck itself was unavailable for independent artwork/page verification; pack comparisons use the task and existing repo records.
+- Read-only local role inventory (55432): only non-system role `sahyog`, with LOGIN/SUPERUSER/CREATEROLE/CREATEDB. Full `python -m pytest` with the specified 55432 DATABASE_URL and `PYTHON_DOTENV_DISABLED=1`: **240 passed, 13 warnings in 30.14s** (0 failed, no skips; warnings are dependency deprecations).

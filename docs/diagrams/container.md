@@ -1,0 +1,48 @@
+# Containers — C4 level 2
+
+These are logical components, not separately deployed microservices. Core uses one synchronous API
+process and a shared lock. Sources: `services/api/{main,deps,auth,ratelimit}.py`,
+`services/agent/llm.py`, `services/records/{embed,ingest,retrieve}.py`, `infra/docker-compose.yml`.
+
+```mermaid
+flowchart TB
+    UI[Browser patient and front desk UI - built] --> API
+    DC[Doctor console - planned Pro] -.-> API
+    subgraph India[India boundary - target hosting; local demo today]
+        API[API - built: W1/W2 HTTP routes, front desk, upload]
+        AUTH[Auth - built demo bearer; OIDC and booking OTP planned Pro]
+        RL[Rate limiter - built per patient and IP in process]
+        GRAPH[Graph runtime - built W1/W2 LangGraph; W3 planned Pro]
+        PG[(Postgres 16 + pgvector + W1 checkpointer - built)]
+        EMB[Local bge-m3 - built; HashEmbedder in tests]
+        ING[PDF upload and background ingest - built]
+        EG[Egress adapter - built regex scrub + refuse-to-send]
+        AUD[Audit - built explicit writes + append-only trigger + access view]
+        PHI[Presidio and re-identification - planned Pro]
+        QUEUE[Durable ingest and W3 review queue - planned Pro]
+        REDIS[Gateway and Redis distributed limits - planned Architect]
+        CRYPTO[Encryption at rest and DB least-privilege roles - planned Architect]
+        SMS[SMS gateway delivery - planned Pro]
+        API --> AUTH
+        API --> RL
+        API --> GRAPH
+        API --> ING
+        ING --> EMB
+        ING --> PG
+        GRAPH --> PG
+        GRAPH --> EMB
+        GRAPH --> EG
+        GRAPH --> AUD
+        AUD --> PG
+        PHI -.-> EG
+        ING -.-> QUEUE
+        RL -.-> REDIS
+        CRYPTO -.-> PG
+        GRAPH -.-> SMS
+    end
+    EG -->|Scrubbed text only - regex coverage limited| OR[OpenRouter - external integration built]
+```
+
+Only W1 is wired to `PostgresSaver` in the production factory; W2 is request-scoped without a
+checkpointer. Uploads are local files, not a built object store. Audit is not an automatic database
+read interceptor. Planned tier allocations here and in D7 are delivery targets, not implemented guarantees.

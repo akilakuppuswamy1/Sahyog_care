@@ -1,163 +1,52 @@
-# Architecture pack — v1 (day 5)
+﻿# Architecture pack — version 2
 
-**Status:** v1 · 2026-11-02 · owner: pod lead
-**Scope at v1 (deck p.41):** context view, container view, W1 graph, ADRs 1–3. The W2 and W3 graphs and the two sequence diagrams follow at v2, before their code.
+Status: 2026-11-02. W1/W2 and Core API are built; W3 is a Pro design. India residency is a deployment target, not a claim about this local demo. This supersedes v1's prospective diagrams.
 
-The pack's diagrams are the delivery office's opening view. The deck says they are to be **corrected and re-issued**, and copying them uncorrected loses marks (p.49). §4 lists every correction and the reason for each.
+## Views and decisions
 
-Diagrams are Mermaid; they render in VS Code (Markdown preview) and on GitHub.
+- [Context — C4 level 1](diagrams/context.md)
+- [Containers — C4 level 2, built/planned](diagrams/container.md)
+- [Entity model — migrations 001–006](diagrams/entity-model.md)
+- [W1 compiled graph](diagrams/w1-graph.md)
+- [W2 compiled graph](diagrams/w2-graph.md)
+- [W3 scribe DESIGN — Pro, not built](diagrams/w3-graph.md)
+- [W1 booking sequence](diagrams/seq-w1-booking.md)
+- [W2 cited answer sequence](diagrams/seq-w2-answer.md)
+- [ADR-001 — hybrid deployment](adr/ADR-001-hybrid-deployment.md)
+- [ADR-002 — database safety rules](adr/ADR-002-safety-rules-in-the-database.md)
+- [ADR-003 — W1 graph shape](adr/ADR-003-w1-graph-shape.md)
+- [D6 deployment ADR](../infra/deployment-adr.md)
+- [D7 threat model and access review](d7-threat-model.md)
 
----
+Regenerate W1/W2 with `python tools/export_graphs.py` (or `--output-dir PATH`). The exporter compiles with ScriptedLLM, InMemoryStore.demo(), InMemoryRecordsTools, HashEmbedder and InMemorySaver, then calls `get_graph().draw_mermaid()`. It does not invoke either graph or construct production dependencies. Regression: `services/agent/tests/test_export_graphs.py::test_export_compiled_graphs`.
 
-## 1. Context view
+## Corrected from the pack
 
-Who touches the system, and what it depends on. Arrows follow the direction of the request.
+Pack references below are the task's supplied comparisons and the repo's existing ADR/v1 notes. The deck itself is not in this workspace; its exact artwork and page text have not been independently checked. Every statement of built behaviour below was checked against implementation.
 
-```mermaid
-flowchart LR
-    subgraph people [People]
-        P[Patient / caregiver<br/>web or app]
-        D[Doctor<br/>console]
-        F[Front desk]
-        Ph[Pharmacist]
-        C[Compliance officer]
-    end
+| Pack/opening view | Corrected design and reason | Implementation evidence |
+| --- | --- | --- |
+| One apparent red-flag stage (p.25) | Rules-only red-flag gate precedes any model. A rules hit ends in handoff. Model net can only add flags; it cannot clear a rules flag. | `services/agent/w1/graph.py::build_w1`, `nodes.py::red_flag_rules`, `redflags.py::merge` |
+| Sequential net then specialty match | `model_checks` runs net and match in a two-worker ThreadPoolExecutor for latency. Any net flag wins over match. The exported graph correctly has one model_checks node, not two sequential nodes. | `services/agent/w1/nodes.py::model_checks` |
+| Language detection drawn as a small model | Built language detection is a deterministic heuristic. | `services/agent/w1/matcher.py::detect_language` |
+| All W1 questions go to matching | Records-only questions without symptom terms redirect to My records before a model call; rules still take priority. | `services/agent/w1/nodes.py::records_question`, `red_flag_rules`, `redirect_records` |
+| Any keyword hit treated as relevant W2 context | Grade uses vector score >= 0.45 OR topic-word coverage > 0.5; widens k=6 to 12 once, then not_found. This avoids irrelevant shared header words admitting an answer. Grade is an edge function. | `services/agent/w2/nodes.py::grade`, `services/records/retrieve.py::coverage` |
+| Model answer assumed grounded | Deterministic verifier resolves citations to retrieved subject chunks, checks numeric membership and diagnosis/dose wording; usable citations allow verbatim-line fallback. This is heuristic verification, not semantic proof. | `services/agent/w2/nodes.py::answer`, `verify`; `services/agent/w1/guards.py::DIAGNOSIS` |
+| Triage retry starts another run | After the 2026-11-02 incident identified in this task, migration 006 reserves `(user,key)` before model/checkpoint work. Same key returns the same thread; running returns 202; completed reads current state. Test proves concurrent replay and restart. Incident narrative beyond this fix is not inferred from code. | `services/api/deps.py::W1Requests`, `services/api/main.py::triage`, `infra/db/006_w1_requests.sql`; `services/api/tests/test_api_postgres.py::test_postgres_pick_slot_resume_and_replay` |
+| 1,400-doctor split (p.19) versus 500 generated doctors (p.20) | Directory target is 500 doctors. 1,400 is not the doctor population. | `data/synthetic/generate_doctors.py::TARGET_DOCTORS`; `data/transforms/tests/test_generated.py` |
+| LLM-generated doctor directory (p.20) | Seeded code produces the directory for reproducibility, explicit distributions and auditability. Reports also use seeded templates. | `data/synthetic/generate_doctors.py`, `generate_reports.py`, `report_cohort.py` |
+| Remote/ambiguous embedding boundary | bge-m3 runs locally; no report text is sent to an embedding vendor. This supports the residency boundary; it does not establish hosting residency. | `services/records/embed.py::BgeM3Embedder`, `services/api/deps.py::build_postgres_deps` |
+| DocChunk lacks patient identity (p.18) | Every chunk has patient_id and a composite document FK; all three retrieval SQL queries filter patient_id. A model cannot choose the retrieval subject. | `infra/db/001_schema.sql`; `services/records/retrieve.py::PostgresRetriever.search` |
+| Draft and signed notes share persistence (p.18) | Built clinical_note table requires signature fields, computes a content hash and rejects update/delete; W3 draft checkpoints/review queue remain planned Pro. Schema is not a built scribe workflow. | `infra/db/001_schema.sql`; [W3 design](diagrams/w3-graph.md) |
+| Stock status checked before doctor edits (p.27–28) | Proposed W3 loops edits through grounding and stock checks before signing; final medicine determines status. | Design only; no W3 implementation claimed |
+| Prospective API gateway, Redis and Presidio drawn as deployed | Core is one FastAPI process with a lock, demo bearer auth, in-process patient/IP buckets, regex egress and local upload files. OIDC/OTP and Presidio are Pro targets; distributed limits are Architect. | `services/api/{auth,ratelimit,deps,main}.py`, `services/agent/llm.py`; [D6](../infra/deployment-adr.md) |
+| SMS relay treated as delivery | notify writes an audit event named sms_outbox with a template ID. There is no persistent outbox table or carrier worker. Delivery remains planned Pro. | `services/agent/w1/nodes.py::notify`, migrations 001–006 |
+| 14 application tables everywhere | Migrations 005 and 006 add frontdesk_handling, frontdesk_replay and w1_request: 17 persistent tables, plus runtime-managed checkpoint tables. | [Entity model](diagrams/entity-model.md) |
 
-    subgraph boundary [Hospital boundary · India region · identified data allowed]
-        SCC[[Sahyog Care Companion]]
-        STT[Speech-to-text<br/>faster-whisper, local]
-        SMS[SMS relay<br/>hospital-run]
-        ID[Identity: OIDC + OTP]
-        OBJ[(Object store<br/>PDFs, audio ≤ 24 h)]
-    end
+## Operational limits and evidence
 
-    subgraph outside [Outside the boundary · de-identified text only]
-        LLM[LLM API<br/>zero-retention terms]
-        HIS[HIS · FHIR R4 read-only<br/>mock in this engagement]
-        STK[Pharmacy stock feed<br/>nightly CSV → API later]
-        GW[SMS carrier<br/>DLT-registered]
-        ABHA[ABHA / ABDM<br/>Architect tier]
-    end
+The production dependency factory gives W1 a PostgresSaver; W2 has no checkpointer. API ownership checks and consent checks precede reads/resumes, but demo bearer subjects are forgeable. Front desk routes distinguish staff from patients only through that demo mechanism. Least-privilege database roles and stronger identity are not implemented.
 
-    P --> SCC
-    D --> SCC
-    F --> SCC
-    Ph --> SCC
-    C --> SCC
-    SCC --> STT
-    SCC --> SMS
-    SCC --> ID
-    SCC --> OBJ
-    SCC -- "scrubbed text only" --> LLM
-    SCC --> HIS
-    SCC --> STK
-    SMS -- "token + templated text" --> GW
-    ID -.-> ABHA
-```
+Booking capacity and appointment idempotency are database enforced. Triage replay has a persistent mapping; resume and upload replay caches are process-local. A crash before finishing a triage reservation can leave it running indefinitely. Replay does not fingerprint triage text. Explicit audit writes cover returned documents in every retrieval pass, not all internal SQL candidates or arbitrary direct database reads.
 
-## 2. Container view
-
-```mermaid
-flowchart TB
-    subgraph clients [Clients]
-        PWA[Patient web app]
-        DC[Doctor console]
-        FD[Front desk + admin<br/>live queue, override]
-    end
-
-    GWY[API gateway<br/>OIDC auth · rate limits · audit headers]
-
-    subgraph services [Services · stateless, behind a balancer]
-        AG[Agent service<br/>LangGraph 1.2: W1, W2, W3]
-        SCH[Scheduling service<br/>book_slot / release]
-        REC[Records service<br/>ingest + retrieval]
-        SCR[Scribe service<br/>STT + note persistence]
-        AC[Audit + consent service]
-        EG[Egress adapter<br/>Presidio scrubber · token map]
-    end
-
-    subgraph stores [Stores · India region]
-        PG[(Postgres 16 + pgvector<br/>14 tables, safety rules in SQL)]
-        CK[(Checkpointer<br/>Postgres, 30-day purge)]
-        RD[(Redis<br/>slot cache 30 s, rate-limit buckets)]
-        OB[(Object store<br/>PDFs; audio lifecycle ≤ 24 h)]
-        Q[[Queue + workers<br/>async ingest]]
-    end
-
-    LLM[LLM API · outside]
-
-    PWA --> GWY
-    DC --> GWY
-    FD --> GWY
-    GWY --> AG & SCH & REC & SCR & AC
-    AG --> SCH & REC & AC
-    AG --> EG --> LLM
-    REC --> Q
-    AG --> CK
-    SCH --> PG
-    SCH --> RD
-    REC --> PG & OB
-    SCR --> PG & OB
-    AC --> PG
-```
-
-**The rule the CIO is owed (deck p.7):** the agent service never calls the LLM directly. Every model call goes through the egress adapter, which scrubs the text, keeps the token map in-region and logs the outbound payload's hash. This is also where the vendor is swapped, without any graph change (E6-2).
-
-## 3. W1 graph — Find my doctor
-
-State: `messages, patient_id (from auth, never from the model), age, language, symptoms, red_flags[], specialty, alternative, confidence, low_conf_turns, candidates[], chosen_slot, booking_id, audit_ids[]`.
-
-```mermaid
-flowchart LR
-    START((start)) --> intake[intake<br/>code]
-    intake --> lang[detect language<br/>small model]
-    lang --> rules{red-flag rules<br/>code, no model}
-    rules -- "any rule fires" --> er[ER hand-off<br/>ticket + 112 guidance<br/>code]
-    er --> END1((end))
-    rules -- clear --> net[red-flag second net<br/>model may ADD a flag,<br/>never remove one]
-    net -- flag added --> er
-    net -- clear --> match[match specialty<br/>model + crosswalk<br/>schema-constrained]
-    match -- "confidence < 0.6<br/>and low_conf_turns < 2" --> clarify[ask one question] --> intake
-    match -- "2 low-confidence turns" --> fd[front-desk hand-off] --> END2((end))
-    match -- "confidence ≥ 0.6" --> shortlist[shortlist<br/>tools: doctors, next free slot]
-    shortlist --> present[present 3 options<br/>code]
-    present --> pick{{interrupt:<br/>patient picks}}
-    pick --> book[book_slot<br/>idempotency key]
-    book -- slot full --> shortlist
-    book -- booked --> notify[SMS via relay<br/>audit] --> END3((end))
-```
-
-Node rules that are code, not prompts:
-
-| Node | Rule | Where it is enforced |
-|---|---|---|
-| red-flag rules | Runs before any model call and cannot be overridden | Graph edge order plus the `w1-redflag-*` eval cases |
-| second net | Output is a set union with the rules' flags, so it can only add | Code merges the two sets; a test covers it |
-| match | Output must be one of the 38 specialty ids; anything else counts as low confidence | Pydantic schema on the model output |
-| book | Double-booking is impossible | `book_slot()` and the `CHECK (booked <= capacity)` constraint |
-| every node | `patient_id` comes from the auth context in state, never from model text | Tool signatures take it from state only |
-
-## 4. Corrections to the pack's diagrams
-
-| # | Pack page | What the pack shows | What we changed | Why |
-|---|---|---|---|---|
-| 1 | p.23 vs p.6 | The container view puts 3 systems outside the boundary, but the context view lists 7 dependencies | All dependencies are drawn and each is placed inside or outside the boundary | A boundary you can't see is the CIO's first question (p.7) |
-| 2 | p.6 | The SMS gateway is drawn outside, yet it receives a phone number, which is a direct identifier that "never" leaves (p.21) | A hospital-run SMS relay inside the boundary; the carrier receives a token plus templated text, or the number only under a DLT contract (D3 A08) | The pack's own data classes contradict its context view |
-| 3 | p.6, p.23 | Speech-to-text placement is ambiguous | STT sits inside the boundary (faster-whisper, local); a hosted STT only in-region under contract (D3 A11) | Audio is identified data |
-| 4 | p.23 vs p.31 | Redis appears in the memory table but not in the container view | Redis added, for the slot cache and the rate-limit buckets | The diagrams must agree |
-| 5 | p.27 vs p.28 | W3 checks stock before review, but the doctor picks the molecule during review | W3 v2 re-runs the stock check after the doctor's edit and before persistence | Otherwise the flag describes a medicine the doctor didn't choose |
-| 6 | p.25 | The W1 red-flag check reads "rules first, LLM second", but the drawing shows one node | Two nodes: deterministic rules, then a model net that can only add flags | Makes "the model can never clear a red flag" visible and testable |
-| 7 | p.19 vs p.20 | A "1,400-doctor split" against 500 generated doctors | 500 throughout | 500 × 60 × 16 = 480,000 matches p.20 and p.22 |
-| 8 | p.22 | Checkpoints are "tens of MB a day" | ~150–300 MB a day, with a 30-day purge job | Arithmetic in docs/d5-sizing.md |
-| 9 | p.18 | DocChunk has no patient_id | patient_id on every chunk, plus a composite FK to document | The retrieval filter becomes a plain WHERE that can't disagree with its parent (ADR-002) |
-| 10 | p.18 | ClinicalNote stores drafts and signed notes alike | Only signed notes are stored; drafts live in the checkpointer; signed notes are immutable and versioned | "An unsigned note is a draft by schema" (p.5) |
-
-## 5. Decisions
-- [ADR-001](adr/ADR-001-hybrid-deployment.md): hybrid deployment, with identified data in-region and only de-identified text crossing the boundary
-- [ADR-002](adr/ADR-002-safety-rules-in-the-database.md): safety rules live in the database, not in prompts
-- [ADR-003](adr/ADR-003-w1-graph-shape.md): W1 is a LangGraph graph with rules-first red flags and an interrupt for the slot pick
-
-## 6. Open at v1
-- The W2 and W3 graphs and the two sequence diagrams (v2, before day 8)
-- Checkpoint purge job and audio lifecycle job (day 7)
-- Every item depending on the D2 answers: A07 vendor terms, A08 SMS, A10 appointment-book ownership
+Regex scrubbing and refuse-to-send are built for known identifier patterns; names and quasi-identifiers can survive. The scrub token map is ephemeral and local. Presidio, re-identification, zero-retention vendor terms verification, outbound payload hash logging, the 200-payload egress replay, storage encryption, checkpoint purge and India hosting are not asserted as built. See D7 for delivery targets and residual risk. No claim of complete de-identification, cryptographic signatures or universal read auditing is made.

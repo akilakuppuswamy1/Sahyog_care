@@ -20,7 +20,23 @@ services:
       test: ["CMD-SHELL", "pg_isready -U sahyog -d sahyog"]
       interval: 5s
       retries: 10
+  migrate:
+    profiles: ["app"]
+    image: sahyog-api:local
+    build:
+      context: ..
+      dockerfile: infra/api.Dockerfile
+    command: ["python", "tools/migrate.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://sahyog:sahyog_local_only@db:5432/sahyog
+      PYTHON_DOTENV_DISABLED: "1"
+    volumes:
+      - hfcache:/root/.cache/huggingface
   api:
+    image: sahyog-api:local
     profiles: ["app"]
     build:
       context: ..
@@ -28,6 +44,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - path: ../.env
         required: false
