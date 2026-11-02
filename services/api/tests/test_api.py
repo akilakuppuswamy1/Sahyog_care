@@ -1,3 +1,4 @@
+import re
 import pytest
 from uuid import uuid4
 from fastapi.testclient import TestClient
@@ -54,9 +55,8 @@ def test_booking_and_ownership(client):
 def test_ops_role_separation_sourced_tiles_and_trace_tree(client):
     patient = "PT-TRACE-PATIENT-9"
     patient_headers = token(patient)
-    assert client.get("/ops", headers=patient_headers).status_code == 403
     staff_headers = token("staff-OPS-TEST")
-    assert client.get("/ops/summary", headers=staff_headers).status_code == 403
+    assert client.get("/ops/api/summary", headers=staff_headers).status_code == 403
 
     triage = client.post("/w1/triage", headers=patient_headers, json={
         "text": "KNOWN_TRIAGE_PRIVATE_TEXT_736 dull lower back pain for three weeks, worse after sitting."
@@ -86,11 +86,11 @@ def test_ops_role_separation_sourced_tiles_and_trace_tree(client):
     assert patient not in serialized
 
     ops_headers = token("ops-operator1")
-    assert client.get("/ops", headers=ops_headers).status_code == 200
-    summary = client.get("/ops/summary", headers=ops_headers)
+    assert client.get("/ops").status_code == 200
+    summary = client.get("/ops/api/summary", headers=ops_headers)
     assert summary.status_code == 200, summary.text
     assert all(tile.get("source") for tile in summary.json()["tiles"])
-    tree = client.get(f"/ops/traces/{trace_id}", headers=ops_headers)
+    tree = client.get(f"/ops/api/traces/{trace_id}", headers=ops_headers)
     assert tree.status_code == 200, tree.text
     assert tree.json()["spans"]
     def kinds(nodes):
@@ -103,7 +103,7 @@ def test_ops_omits_tiles_without_a_source(client, monkeypatch):
 
     client.app.state.deps.tracer = Tracer(NullExporter())
     monkeypatch.setattr("services.api.ops._latest_eval", lambda *args: (1.0, None))
-    response = client.get("/ops/summary", headers=token("ops-operator1"))
+    response = client.get("/ops/api/summary", headers=token("ops-operator1"))
     assert response.status_code == 200
     tiles = response.json()["tiles"]
     assert all(tile.get("source") for tile in tiles)
@@ -142,7 +142,46 @@ def test_consent_and_audit_scope(client):
 
 def test_static_page(client):
     response = client.get('/')
-    assert response.status_code == 200 and 'Signed in as' in response.text
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    page = response.content.decode("utf-8")
+    assert "Signed in as" in page
+    assert "filter(Boolean).join(' · ')" in page
+    assert "�" not in page
+    assert re.search(r"<head>\s*<meta charset=\"utf-8\">", page, re.IGNORECASE)
+
+
+@pytest.mark.parametrize("path", ["/ops", "/frontdesk"])
+def test_ops_and_frontdesk_pages_are_public_static_shells(client, path):
+    response = client.get(path)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    page = response.content.decode("utf-8")
+    assert re.search(r"<head>\s*<meta charset=\"utf-8\">", page, re.IGNORECASE)
+    assert "Signed in as" in page
+    assert "PT-TRACE-PATIENT-9" not in page
+    assert "KNOWN_TRIAGE_PRIVATE_TEXT_736" not in page
+
+
+@pytest.mark.parametrize("path", [
+    "/ops/api/summary",
+    "/ops/api/traces/trace-id",
+    "/frontdesk/api/escalations",
+    "/frontdesk/api/bookings",
+    "/frontdesk/api/escalations/1/handled",
+    "/frontdesk/api/bookings/missing/cancel",
+    "/frontdesk/api/bookings/missing/move",
+])
+def test_ops_and_frontdesk_data_routes_require_auth_and_role(client, path):
+    method = "post" if path.endswith(("/handled", "/cancel", "/move")) else "get"
+    body = {"slot_id": "S1"} if path.endswith("/move") else None
+    request = getattr(client, method)
+    kwargs = {"json": body} if body else {}
+
+    assert request(path, **kwargs).status_code == 401
+    assert request(path, headers=token("PT-WRONG-ROLE"), **kwargs).status_code == 403
+    wrong_staff = "staff-WRONG-ROLE" if path.startswith("/ops/") else "ops-WRONG-ROLE"
+    assert request(path, headers=token(wrong_staff), **kwargs).status_code == 403
 
 
 def assert_concurrent_triage(client, llm, headers):

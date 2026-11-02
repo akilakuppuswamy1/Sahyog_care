@@ -82,11 +82,11 @@ def test_pg_move_cancel_replay_audit(pgclient,db):
         INSERT INTO slot(slot_id,doctor_id,clinic_id,starts_at) VALUES ('FD1','DFD','CFD',now()+interval '1 day'),('FD2','DFD','CFD',now()+interval '2 days');""")
     pid=PATIENTS[0][0]
     aid=str(db.execute("SELECT book_slot(%s,'FD1',%s)",(pid,uuid4().hex)).fetchone()[0])
-    bad=c.post(f'/frontdesk/bookings/{aid}/move',headers=token('staff-FD01'),json={'slot_id':'missing'})
+    bad=c.post(f'/frontdesk/api/bookings/{aid}/move',headers=token('staff-FD01'),json={'slot_id':'missing'})
     assert bad.status_code==409
     assert db.execute('SELECT status FROM appointment WHERE appt_id=%s',(aid,)).fetchone()[0]=='booked'
     assert db.execute("SELECT booked FROM slot WHERE slot_id='FD1'").fetchone()[0]==1
-    h=token('staff-FD01'); path=f'/frontdesk/bookings/{aid}/move'
+    h=token('staff-FD01'); path=f'/frontdesk/api/bookings/{aid}/move'
     first=c.post(path,headers=h,json={'slot_id':'FD2'})
     assert first.status_code==200,first.text
     assert c.post(path,headers=h,json={'slot_id':'FD2'}).json()==first.json()
@@ -94,9 +94,8 @@ def test_pg_move_cancel_replay_audit(pgclient,db):
     new=first.json()['new_appt_id']
     assert db.execute('SELECT status FROM appointment WHERE appt_id=%s',(aid,)).fetchone()[0]=='overridden'
     assert db.execute('SELECT booked_by FROM appointment WHERE appt_id=%s',(new,)).fetchone()[0]=='front_desk'
-    h=token('staff-FD01'); path=f'/frontdesk/bookings/{new}/cancel'
+    h=token('staff-FD01'); path=f'/frontdesk/api/bookings/{new}/cancel'
     r=c.post(path,headers=h); assert r.status_code==200,r.text
     assert c.post(path,headers=h).json()==r.json()
     assert db.execute("SELECT count(*) FROM audit_event WHERE actor_id='FD01' AND actor_role='front_desk' AND action='override'").fetchone()[0]==2
     assert db.execute("SELECT sum(booked) FROM slot WHERE doctor_id='DFD'").fetchone()[0]==0
-

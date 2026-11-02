@@ -133,13 +133,17 @@ def create_app(deps_factory=build_postgres_deps):
     def health():
         return {"status": "ok"}
 
-    @app.get("/ops")
-    def ops_page(request: Request, user: str = Depends(current_user)):
-        if not user or request.state.role != "ops":
-            raise HTTPException(403, "Role not permitted")
-        return FileResponse(Path(__file__).parent / "static" / "ops.html")
+    def static_html(filename):
+        return FileResponse(
+            Path(__file__).parent / "static" / filename,
+            media_type="text/html; charset=utf-8",
+        )
 
-    @app.get("/ops/summary")
+    @app.get("/ops")
+    def ops_page():
+        return static_html("ops.html")
+
+    @app.get("/ops/api/summary")
     def ops_summary(request: Request, user: str = Depends(current_user)):
         if not user or request.state.role != "ops":
             raise HTTPException(403, "Role not permitted")
@@ -147,7 +151,7 @@ def create_app(deps_factory=build_postgres_deps):
         with deps.lock:
             return build_ops_summary(deps)
 
-    @app.get("/ops/traces/{trace_id}")
+    @app.get("/ops/api/traces/{trace_id}")
     def ops_trace(trace_id: str, request: Request, user: str = Depends(current_user)):
         if not user or request.state.role != "ops":
             raise HTTPException(403, "Role not permitted")
@@ -265,13 +269,10 @@ def create_app(deps_factory=build_postgres_deps):
             return [dict(row, **({"at_display": ist(row["at"])} if row.get("at") else {})) for row in deps.audit_query(user)]
 
     @app.get("/frontdesk")
-    def frontdesk_page(request: Request, user: str = Depends(current_user)):
-        deps = request.app.state.deps
-        with deps.lock:
-            fd.audit(deps, user, "read", "frontdesk", "page")
-        return FileResponse(Path(__file__).parent / "static" / "frontdesk.html")
+    def frontdesk_page():
+        return static_html("frontdesk.html")
 
-    @app.get("/frontdesk/escalations")
+    @app.get("/frontdesk/api/escalations")
     def escalation_list(request: Request, status: str = "open", user: str = Depends(current_user)):
         if status not in ("open", "handled"): raise HTTPException(400, "Invalid status")
         deps = request.app.state.deps
@@ -282,13 +283,13 @@ def create_app(deps_factory=build_postgres_deps):
                 if row.get("at"): row["at_display"] = ist(row["at"])
             return result
 
-    @app.post("/frontdesk/escalations/{eid}/handled")
+    @app.post("/frontdesk/api/escalations/{eid}/handled")
     def mark_handled(eid: int, request: Request, user: str = Depends(current_user)):
         write_key(request)
         deps = request.app.state.deps
         with deps.lock: return fd.handled(deps, eid, user)
 
-    @app.get("/frontdesk/bookings")
+    @app.get("/frontdesk/api/bookings")
     def booking_list(request: Request, booked_by: str = "assistant", user: str = Depends(current_user)):
         if booked_by not in ("assistant", "front_desk", "patient"): raise HTTPException(400, "Invalid booked_by")
         deps = request.app.state.deps
@@ -300,13 +301,13 @@ def create_app(deps_factory=build_postgres_deps):
     class Move(StrictRequest):
         slot_id: str = Field(min_length=1, max_length=200)
 
-    @app.post("/frontdesk/bookings/{aid}/cancel")
+    @app.post("/frontdesk/api/bookings/{aid}/cancel")
     def cancel(aid: str, request: Request, user: str = Depends(current_user)):
         key = write_key(request)
         deps = request.app.state.deps
         with deps.lock: return fd.override(deps, user, aid, None, key)
 
-    @app.post("/frontdesk/bookings/{aid}/move")
+    @app.post("/frontdesk/api/bookings/{aid}/move")
     def move(aid: str, body: Move, request: Request, user: str = Depends(current_user)):
         key = write_key(request)
         deps = request.app.state.deps
@@ -368,7 +369,7 @@ def create_app(deps_factory=build_postgres_deps):
     def index(request: Request):
         view = request.query_params.get("view")
         page = "frontdesk.html" if view == "frontdesk" else "ops.html" if view == "ops" else "index.html"
-        return FileResponse(Path(__file__).parent / "static" / page)
+        return static_html(page)
 
     return app
 

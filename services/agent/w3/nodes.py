@@ -1,0 +1,332 @@
+"""W3 scribe node logic. No node sends transcript text to tracing or persistence metadata."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import TypedDict
+
+from services.agent.llm import JsonLLM, ModelError
+from services.agent.w1.guards import scrub
+from services.agent.w1.redflags import evaluate
+from services.agent.w3.stock import StockSource
+from services.agent.w3.store import W3Store
+
+
+PLACEHOLDER = "[doctor to specify]"
+SOAP_FIELDS = ("S", "O", "A", "P")
+MEDICINE_CLASSES = re.compile(
+    r"\b(statins?|antibiotics?|beta[ -]?blockers?|ace inhibitors?|nsaids?|"
+    r"anticoagulants?|blood thinners?|diuretics?|steroids?)\b",
+    re.I,
+)
+DOSE_PATTERN = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:mcg|μg|mg|g|ml|iu|units?|tablets?|capsules?)\b", re.I
+)
+CORRECTION_PATTERN = re.compile(r"\b(?:sorry|actually|make that|rather|correction|i mean)\b", re.I)
+
+
+class W3State(TypedDict, total=False):
+    transcript: str
+    encounter_id: str
+    doctor_id: str
+    trace_id: str
+    draft_id: str
+    version: int
+    patient_id: str
+    clinic_id: str
+    soap_json: dict
+    initial_soap_json: dict
+    medicines: list[dict]
+    flags: list[dict]
+    edit_history: list[dict]
+    review_started_at: datetime
+    action: str
+    review_error: str
+    note: dict
+    notification: dict
+    model_unavailable: bool
+    blocked_by_red_flag: bool
+    route: str
+
+
+def intake(s: W3State, store: W3Store) -> W3State:
+    transcript = s.get("transcript", "")
+    encounter_id, doctor_id = s.get("encounter_id", ""), s.get("doctor_id", "")
+    if not isinstance(transcript, str) or not transcript.strip():
+        raise ValueError("transcript is required")
+    if not encounter_id or not doctor_id:
+        raise PermissionError("encounter and authenticated doctor are required")
+    encounter = store.get_encounter(encounter_id, doctor_id)
+    return {
+        "transcript": transcript.strip(),
+        "encounter_id": encounter_id,
+        "doctor_id": doctor_id,
+        "patient_id": encounter["patient_id"],
+        "clinic_id": encounter["clinic_id"],
+        "draft_id": str(uuid.uuid4()),
+        "version": store.next_version(encounter_id),
+        "trace_id": s.get("trace_id") or uuid.uuid4().hex,
+        "flags": [],
+        "edit_history": [],
+        "action": "",
+    }
+
+
+def scrub_transcript(s: W3State) -> W3State:
+    cleaned, _token_map = scrub(s["transcript"])
+    return {"transcript": cleaned}
+
+
+def red_flag_rules(s: W3State) -> W3State:
+    result = evaluate(s["transcript"])
+    if not result.fired:
+        return {"blocked_by_red_flag": False}
+    flags = [{"kind": "red_flag", "message": item} for item in result.fired]
+    return {"blocked_by_red_flag": True, "flags": flags, "route": "manual_review"}
+
+
+def draft_soap(s: W3State, llm: JsonLLM) -> W3State:
+    system = """You draft, but never sign, an Indian clinical SOAP note from a doctor-patient dictation.
+Do not add facts, diagnoses, medicines, molecules, doses, or frequencies not stated in the transcript.
+Keep S, O, A, and P concise and faithful. For every medicine, copy an exact supporting quote.
+Use a known brand only as the name; do not infer its molecule unless the transcript names it.
+If a medicine class is mentioned without a molecule, preserve the class as the name and leave molecule empty.
+Return JSON only:
+{"S":"...","O":"...","A":"...","P":"...","medicines":[{"name":"...","molecule":"...",
+"dose":"...","frequency":"...","quote":"exact transcript words"}]}"""
+    try:
+        result = llm.complete_json(
+            system, s["transcript"], purpose="w3.draft_soap", trace_id=s["trace_id"]
+        )
+        if not isinstance(result, dict):
+            raise ModelError("W3 model response must be a JSON object")
+        soap = {field: result.get(field, "") for field in SOAP_FIELDS}
+        if any(not isinstance(value, str) for value in soap.values()):
+            raise ModelError("W3 SOAP fields must be strings")
+        medicines = result.get("medicines", [])
+        if not isinstance(medicines, list) or any(not isinstance(item, dict) for item in medicines):
+            raise ModelError("W3 medicines must be a JSON array of objects")
+        normalized = []
+        for item in medicines:
+            row = {}
+            for key in ("name", "molecule", "dose", "frequency", "quote"):
+                value = item.get(key, "")
+                if not isinstance(value, str):
+                    raise ModelError(f"W3 medicine field {key} must be a string")
+                row[key] = value.strip()
+            normalized.append(row)
+    except (ModelError, TimeoutError):
+        soap = {field: "" for field in SOAP_FIELDS}
+        normalized = []
+        return {
+            "soap_json": {**soap, "medicines": normalized},
+            "initial_soap_json": {**soap, "medicines": normalized},
+            "medicines": normalized,
+            "flags": [{"kind": "model_unavailable", "message": "model unavailable"}],
+            "model_unavailable": True,
+            "action": "park",
+        }
+    soap_json = {**soap, "medicines": normalized}
+    return {
+        "soap_json": soap_json,
+        "initial_soap_json": json.loads(json.dumps(soap_json)),
+        "medicines": normalized,
+        "flags": [],
+        "model_unavailable": False,
+    }
+
+
+def _key(value: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
+
+
+def _contains(text: str, phrase: str) -> bool:
+    key = _key(phrase)
+    return bool(key) and f" {key} " in f" {_key(text)} "
+
+
+def _dose_is_current(quote: str, dose: str) -> bool:
+    if not _contains(quote, dose):
+        return False
+    mentions = list(DOSE_PATTERN.finditer(quote))
+    correction = list(CORRECTION_PATTERN.finditer(quote))
+    if not mentions or not correction:
+        return True
+    last_correction = correction[-1].start()
+    later_doses = [mention for mention in mentions if mention.start() > last_correction]
+    if not later_doses:
+        return True
+    return _key(dose) == _key(later_doses[-1].group(0))
+
+
+def grounding_check(s: W3State, stock: StockSource) -> W3State:
+    transcript = s["transcript"]
+    medicines = [dict(item) for item in s.get("medicines", [])]
+    flags = [flag for flag in s.get("flags", []) if flag.get("kind") not in {"grounding", "stock"}]
+    for item in MEDICINE_CLASSES.finditer(transcript):
+        class_name = item.group(0)
+        if not any(_key(existing.get("name", "")) == _key(class_name) for existing in medicines):
+            medicines.append({"name": class_name, "molecule": "", "dose": "", "frequency": "",
+                              "quote": class_name})
+
+    for index, medicine in enumerate(medicines):
+        quote = medicine.get("quote", "")
+        quote_supported = bool(quote) and _contains(transcript, quote)
+        name = medicine.get("name", "")
+        molecule = medicine.get("molecule", "")
+        canonical = stock.molecule_for(name) if name else None
+        name_supported = _contains(quote, name) if name else False
+        molecule_supported = (
+            (_contains(quote, molecule) if molecule else False)
+            or bool(canonical and molecule and _key(canonical) == _key(molecule))
+        )
+        if not molecule and name_supported and not MEDICINE_CLASSES.fullmatch(name):
+            molecule, molecule_supported = name, True
+        if not name_supported and not molecule_supported:
+            medicine["molecule"] = PLACEHOLDER
+            flags.append({"kind": "grounding", "field": f"medicines.{index}.molecule",
+                          "message": "medicine is not supported by a transcript quote"})
+        elif not molecule_supported:
+            medicine["molecule"] = PLACEHOLDER
+            flags.append({"kind": "grounding", "field": f"medicines.{index}.molecule",
+                          "message": "molecule is not supported by the quoted medicine"})
+        else:
+            medicine["molecule"] = molecule
+        if not quote_supported:
+            medicine["molecule"] = PLACEHOLDER
+            flags.append({"kind": "grounding", "field": f"medicines.{index}.quote",
+                          "message": "medicine quote is not present in the transcript"})
+
+        dose = medicine.get("dose", "")
+        if not dose or not quote_supported or not _dose_is_current(quote, dose):
+            medicine["dose"] = PLACEHOLDER
+            flags.append({"kind": "grounding", "field": f"medicines.{index}.dose",
+                          "message": "dose is missing, unsupported, or superseded"})
+        frequency = medicine.get("frequency", "")
+        if frequency and (not quote_supported or not _contains(quote, frequency)):
+            medicine["frequency"] = PLACEHOLDER
+            flags.append({"kind": "grounding", "field": f"medicines.{index}.frequency",
+                          "message": "frequency is not supported by the quote"})
+        if not quote_supported:
+            medicine["quote"] = ""
+
+    soap_json = dict(s["soap_json"])
+    soap_json["medicines"] = medicines
+    return {"medicines": medicines, "soap_json": soap_json, "flags": flags}
+
+
+def stock_check(s: W3State, stock: StockSource) -> W3State:
+    medicines = [dict(item) for item in s.get("medicines", [])]
+    flags = [flag for flag in s.get("flags", []) if flag.get("kind") != "stock"]
+    for index, medicine in enumerate(medicines):
+        if medicine.get("molecule") == PLACEHOLDER:
+            medicine.update(stock_status="unknown", as_of=None, alternatives=[])
+            continue
+        result = stock.check(s["clinic_id"], medicine)
+        medicine.update(result)
+        if result["status"] == "out_of_stock":
+            flags.append({"kind": "stock", "field": f"medicines.{index}",
+                          "message": "medicine is out of stock at this clinic",
+                          "alternatives": result["alternatives"], "as_of": result["as_of"]})
+    soap_json = dict(s["soap_json"])
+    soap_json["medicines"] = medicines
+    return {"medicines": medicines, "soap_json": soap_json, "flags": flags}
+
+
+def _draft_payload(s: W3State) -> dict:
+    return {
+        "draft_id": s["draft_id"], "encounter_id": s["encounter_id"], "doctor_id": s["doctor_id"],
+        "version": s["version"], "soap_json": s["soap_json"], "medicines": s.get("medicines", []),
+        "initial_soap_json": s.get("initial_soap_json", s["soap_json"]),
+        "flags": s.get("flags", []), "edit_history": s.get("edit_history", []),
+    }
+
+
+def persist_draft(s: W3State, store: W3Store) -> W3State:
+    started = store.save_draft(_draft_payload(s), "draft")
+    return {"review_started_at": started}
+
+
+def park_draft(s: W3State, store: W3Store) -> W3State:
+    store.save_draft(_draft_payload(s), "parked")
+    return {"route": "parked", "action": "parked"}
+
+
+def apply_edits(s: W3State, store: W3Store) -> W3State:
+    soap_json = dict(s["soap_json"])
+    medicines = [dict(item) for item in s.get("medicines", [])]
+    edits = s.get("edits", [])
+    if not isinstance(edits, list) or not edits:
+        raise ValueError("edit action requires at least one field edit")
+    history = list(s.get("edit_history", []))
+    for edit in edits:
+        if not isinstance(edit, dict) or not isinstance(edit.get("field"), str) or "value" not in edit:
+            raise ValueError("each edit must contain a field and value")
+        field, value = edit["field"], edit["value"]
+        if field in SOAP_FIELDS:
+            if not isinstance(value, str):
+                raise ValueError(f"{field} edits must be strings")
+            before = soap_json[field]
+            soap_json[field] = value
+        elif field == "medicines":
+            if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+                raise ValueError("medicines edits must be a list of medicine objects")
+            before, medicines = medicines, [dict(item) for item in value]
+        else:
+            match = re.fullmatch(r"medicines(?:\.|\[)(\d+)\]?\.(name|molecule|dose|frequency|quote)", field)
+            if not match:
+                raise ValueError(f"field is not editable: {field}")
+            index, key = int(match.group(1)), match.group(2)
+            if index >= len(medicines) or not isinstance(value, str):
+                raise ValueError(f"invalid medicine edit: {field}")
+            before = medicines[index].get(key, "")
+            medicines[index][key] = value
+        if before != value:
+            store.record_edit(s["draft_id"], field, before, value, s["doctor_id"])
+            history.append({"field": field, "before": before, "after": value, "edited_by": s["doctor_id"]})
+    soap_json["medicines"] = medicines
+    flags = [flag for flag in s.get("flags", []) if flag.get("kind") not in {"grounding", "stock"}]
+    return {"soap_json": soap_json, "medicines": medicines, "edit_history": history,
+            "flags": flags, "action": ""}
+
+
+def reject_draft(s: W3State, store: W3Store) -> W3State:
+    store.set_draft_status(s["draft_id"], "rejected")
+    return {"route": "rejected", "action": "rejected"}
+
+
+def timeout_minutes() -> float:
+    raw = os.environ.get("W3_REVIEW_TIMEOUT_MIN", "30")
+    try:
+        timeout = float(raw)
+    except ValueError as exc:
+        raise ValueError("W3_REVIEW_TIMEOUT_MIN must be a number") from exc
+    if timeout <= 0 or timeout == float("inf") or timeout != timeout:
+        raise ValueError("W3_REVIEW_TIMEOUT_MIN must be positive and finite")
+    return timeout
+
+
+def review_expired(s: W3State, store: W3Store) -> bool:
+    started = s.get("review_started_at")
+    if started is None:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) < started + timedelta(minutes=timeout_minutes()):
+        return False
+    store.set_draft_status(s["draft_id"], "parked")
+    return True
+
+
+def park_expired_reviews(store: W3Store) -> list[str]:
+    """Worker hook to park drafts even when no reviewer resumes their checkpoint."""
+    return store.park_expired_drafts(timeout_minutes())
+
+
+def sign_draft(s: W3State, store: W3Store) -> W3State:
+    signed = store.sign_draft(_draft_payload(s), s["doctor_id"], s["trace_id"])
+    notification = store.notify_signed(signed, s["patient_id"], s["trace_id"])
+    return {"note": signed, "notification": notification, "route": "signed", "action": "signed"}

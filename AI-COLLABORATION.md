@@ -22,9 +22,9 @@ proposed:
 - 10 discovery questions
 - 15 assumption rows
 - An inventory skeleton and a row-count script
-accepted: _fill in after the pod reviews_
-rejected: _fill in, e.g. any question the pod rewrote or any rung the pod moved_
-why: _fill in_
+accepted: repo layout, 20 task cards, 15 assumptions, inventory script.
+rejected: guessed row counts and licences — kept TBD until the real Kaggle files were counted.
+why: house rule "exact counts before use"; the real count changed a pack figure (no-show 20.2%, not 18%).
 notes:
 - The agent deliberately left exact row counts and most licences as TBD rather than guessing them (house rule: exact counts before use).
 - The agent flagged that the No Shows Kaggle slug is unconfirmed.
@@ -37,9 +37,9 @@ proposed:
 - Five Kaggle transforms with tallies
 - 34 Python tests plus 10 database scenarios
 - 14 data contracts and the D5 sizing
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: DB-enforced safety rules (ADR-002), seeded doctor/slot generators instead of an LLM (pack deviation), the five transforms.
+rejected: first parse_price, keep-first transcription dedupe, ERRCODE P0002, default host port 5432.
+why: unit tests, the real Kaggle file and tests against real Postgres on our machine caught each one.
 notes (things the agent got wrong or changed, for the steering review question "where did your agent mislead you?"):
 - **Bug caught by a test:** the first `parse_price` stripped every non-digit except '.', so "Rs. 12" became 0.12. `test_price_parsing` failed; the fix strips a currency prefix and then requires a clean number.
 - **Deliberate deviation from the pack:** p.20 has an LLM write the doctor directory. The agent proposed seeded code instead (reproducible, free, bias-auditable). The pod should accept or reject this explicitly.
@@ -62,9 +62,9 @@ proposed:
 - evals/sets/w1_triage.jsonl: 30 cases (12 red flag, 14 routine, 2 low-confidence, 2 two-specialty; 4 Hinglish; pack cases A and B)
 - evals/tests/test_eval_sets.py: the eval set is itself tested
 - docs/pre-mortem.md with 11 failure modes
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: ADRs 1-3, the W1 eval set written before any graph code, the pre-mortem.
+rejected: the pre-mortem's claim of 7 Hinglish cases.
+why: we counted the eval file — it has 4.
 notes:
 - Day-5 gate held: evals exist, graph code does not.
 - The eval cases and red-flag routing were drafted by the agent, not a clinician. added_by says "clinical review pending" on purpose.
@@ -78,9 +78,9 @@ proposed:
 - OpenRouter client behind one interface (vendor swap = one file)
 - W1 nodes as plain functions, wired into a LangGraph graph with two interrupts (clarify, pick)
 - Postgres and in-memory tools; a CLI demo; the eval runner
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: rules-first red-flag gate, add-only model net, qwen3-235b for W1.
+rejected: the first rule set (overfit), the negation regex that crossed clauses, qwen3-30b for W1, "a nurse will call within two minutes" wording.
+why: held-out paraphrase tests; the safety test "not feeling well … crushing chest pain"; graph eval (clarify 0.0, 2 false alarms); staffing unconfirmed (D2).
 notes:
 - **Overfitting caught:** the first rule set scored 30/30 on the eval set, then missed 3 of 12 held-out paraphrases
   ("tightness in my chest", "cannot breathe", "face suddenly drooped"). Fixed; the held-out set is now its own test.
@@ -104,9 +104,9 @@ proposed:
 - The ask graph: consent and scope guard -> doctor hand-off rules -> retrieve -> grade/widen -> cited answer ->
   deterministic verifier (citations resolve, numbers grounded, no diagnosis wording) with a verbatim fallback
 - The W2 eval set (30) and evals/run_w2.py; 32 unit tests + a pgvector red-team test
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: hybrid retrieval with the patient filter in SQL, local bge-m3, coverage grade, prompt v2, verifier with mg/dL lookahead.
+rejected: "any keyword hit is relevant", the blood-pressure test that passed for the wrong reason, the dose regex matching lab units, zip delivery, the question-vs-question embedding check.
+why: real-Postgres graph test; eval runs 110626 → 122732 → 150927; ImportError from a partial zip.
 notes:
 - **Design choice:** report text comes from seeded templates, not an LLM, so eval values are exact (deck p.20 says LLM).
 - **Design choice:** identifiers live only in the PATIENT DETAILS block, which the chunker drops, so no name, phone or id
@@ -131,9 +131,9 @@ agent: Coding agent (tool/model not recorded in the commit)
 proposed:
 - FastAPI endpoints and a browser demo for W1/W2
 - Idempotency keys, rate limits, JSON request logs, a Docker API service, and a deployment ADR
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: FastAPI + demo page, idempotency keys, rate limits, JSON logs, Docker service, deployment ADR.
+rejected: bare `uvicorn` in the README; production deps not loading .env.
+why: both failed on first start on our machine.
 notes:
 - The launch instructions include `python -m uvicorn services.api.main:app --port 8000`.
 
@@ -142,9 +142,9 @@ agent: Coding agent (tool/model not recorded in the commit)
 proposed:
 - Front-desk queue and booking overrides
 - PDF upload with ingest status, records-question redirect, and IST display times
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: front desk queue and overrides, PDF upload with status, records-question redirect, IST times.
+rejected: nothing wholesale.
+why: our browser test showed "What is my HbA1c?" being booked with a doctor, which led to the redirect and 4 new eval cases.
 notes:
 - The commit adds front-desk and upload routes, UI, database migration, and PostgreSQL upload tests.
 
@@ -153,9 +153,9 @@ agent: Coding agent (Codex investigated the incident; model not recorded)
 proposed:
 - Reserve a durable W1 thread ID per (user, idempotency key) and replay the current thread/checkpoint for duplicate requests.
 - Remove automatic browser retries; poll known thread IDs and cover concurrent replays in tests.
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: idempotent triage per (user, key), no client auto-retry, polling.
+rejected: the agent's automatic client retry, and its first diagnosis (pool row factory).
+why: our JSON request logs showed a replay returning thread_id null; the tests never retried.
 notes:
 - **Incident:** an automatic demo retry replayed an 11.6 s W1 triage POST; the replay returned `thread_id: null`, then a slot click got 409 "Thread is not paused". JSON request logs exposed it; tests did not retry. Codex's first pool-row-factory diagnosis did not reproduce it.
 - The commit adds durable idempotency, polling support, and concurrent replay tests. Environment slips: bare `uvicorn` used the global Python without `psycopg_pool`, so the documented command uses `python -m uvicorn`; production dependencies load `.env`, while test dependencies do not.
@@ -166,9 +166,9 @@ agent: Copilot SDK assistant (model not recorded)
 proposed:
 - Add repository-wide coding-agent rules in `AGENTS.md` and the `CLAUDE.md` pointer.
 - Catch up the existing W1/W2 entries and add one entry for each unlogged API commit group, including the incident fix.
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: AGENTS.md house rules shared by every coding agent.
+rejected: none.
+why: rules in one file stopped agents reading .env, skipping tests or running evals unasked.
 notes:
 - Documentation-only changes; no code, tests, or data were changed. Unrelated untracked worktree files were left untouched. No `.env` was read.
 
@@ -179,9 +179,9 @@ proposed:
 - Architecture pack v2: context, containers, SQL-derived entity model, compiled W1/W2 exports, W3 Pro design and two sequences; code-verified corrections and ADR/D6/D7 links.
 - Offline `tools/export_graphs.py` and subprocess regression `services/agent/tests/test_export_graphs.py::test_export_compiled_graphs`.
 - D7 STRIDE controls linked to existing tests, explicit missing-control tiers, and a read-only local DB role inventory/access-review target.
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: architecture v2 generated from the compiled graphs and the SQL, D7 threat model.
+rejected: claims we could not prove in code (SMS delivery, W2 checkpointing, authenticated signing, India hosting).
+why: each claim was checked against the repository before it went into a document.
 notes:
 - Documentation-only update based on pod findings supplied in chat; no code, tests, or data changed. `.env` was not read.
 - Architecture/D7 extension: docs, one exporter script and its requested test only; service implementation unchanged. No `.env` read/print, OpenRouter call, eval run or Docker build. The full suite reads eval fixtures as tests but does not execute eval runners.
@@ -200,9 +200,9 @@ proposed:
 - Isolated PostgreSQL regression for COPY, idempotence, rollback, partial fixture cohorts and unchanged consent expiry.
 - Day-8 change-request preparation (docs only): a timed two-hour checklist, ADR-004 draft template in ADR-001's format, and two short client message templates with confirmation, tradeoffs and revised dates.
 - Executive memo: save the user-supplied text verbatim in `memo/executive-memo.md`, preserving `<names>`, and audit every factual claim against saved run JSON, the eval report, API controls, implementation and tests; report caveats separately without revising the memo.
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+accepted: eval report generated from saved runs, RFP response, migrate service, change-request kit, memo.
+rejected: memo wording that overstated results ("every read", "vendor swap in a day", a mixed-denominator percentage).
+why: a claim-by-claim audit of the memo against run JSON and tests.
 notes:
 - What the agent got wrong: initially used `python`, absent from PATH; shell output caught it. The venv base interpreter then hit sandbox access denial; execution approval allowed the offline generator and tests. An interrupted turn lost the first test session, so the full suite was rerun rather than claiming a missing result.
 - Review caught two incorrect evidence paths (`guards.py` and `redflags.py` live under `services/agent/w1/`) and a first-patient-only bootstrap check that missed partial cohorts. Paths were corrected; the bootstrap now inserts missing patients and preserves existing consent expiry, covered by `infra/db/tests/test_migrate.py::test_migrations_copy_rollback_and_restart`.
@@ -222,10 +222,13 @@ proposed:
 - Expose degraded API responses in `X-Degraded` and structured logs; record `served_by`, fallback/degraded rates, and p95 spread in eval output and the offline report.
 - Document the new settings, outage behavior and denial-of-service control; add fake-client and workflow regressions.
 - Add Pro observability: PHI-free Postgres tracing, role-gated sourced `/ops` metrics and trace trees, a 30-day purge function, and a saved-run cost worksheet using model-specific environment prices.
+- Serve `/ops` and `/frontdesk` as public static shells; move their role-protected data endpoints under `/ops/api` and `/frontdesk/api`, with demo bearer tokens held in session storage.
+- Render sourced ops tiles as human-readable values with status colors and latency targets; show traces as nested duration trees, and configure demo auth through `.env.example` and the README.
 - Codex (GPT-6): replace only the README opening with the user-supplied overview and design principles, adding the requested current-eval link text and W1 specialty-accuracy regression disclosure; preserve all content from Layout onward.
-accepted: _pod to fill_
-rejected: _pod to fill_
-why: _pod to fill_
+- Submission freeze updates: replace the tier summary, add known gaps and the Day-8 change-request status, and add the p.47 checklist and synthetic demo run block in `docs/submission.md`.
+accepted: provider-distinct hedge, rate-based breaker, 8 s outage-only deadline, in-region tracing, /ops screen, cost sheet.
+rejected: the 3.5 s deadline + count-based breaker, Langfuse Cloud, auth-gated HTML page shells.
+why: runs 172538/172623 regressed availability (6 of 16 bookings to front desk); runs 180728/180812/180851 restored it; residency; the browser 401.
 notes:
 - What the agent got wrong: the first focused run exposed a race where an already-successful fallback could finish after the wait result was captured; `test_primary_error_uses_fallback` failed and caught it. The wait loop now rechecks all completed futures before declaring both branches failed.
 - Verification: focused fake-client/workflow tests passed (74 passed); final full `pytest` with the required local DATABASE_URL and `PYTHON_DOTENV_DISABLED=1`: **255 passed, 13 warnings in 23.86s** (no failures or skips). Pylance found no syntax errors or type errors in the changed model and node modules.
@@ -245,3 +248,12 @@ notes:
 - What the agent got wrong: the first cost-sheet test expected the local-embedding description in an adjacent phrase; `evals/tests/test_build_cost_sheet.py::test_cost_sheet_uses_measured_runs_and_workflow_prices` caught the brittle assertion. The assertion was corrected to verify the generated model and no-API-cost content.
 - Migration application: the local database had the 001–006 schema/data but no ledger; catalog checks confirmed existing migration effects before reconciling 002–006, then `tools.migrate.migrate` applied 007 and verified `trace_span`, its workflow index and ledger entry.
 - Observability verification: focused API, PostgreSQL, cost-sheet and eval-report tests passed (16 passed). Required full `pytest` with `DATABASE_URL=postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog` and `PYTHON_DOTENV_DISABLED=1`: **266 passed, 13 warnings in 38.43s** (zero failures; warnings are dependency deprecations). No `.env` access, eval execution, OpenRouter request or Docker build.
+- What the agent got wrong: the first Windows focused run used the oversized generated ID for the 10 MB upload parameter, exceeding the process environment-variable limit. Concise parametrized IDs in `test_upload_rejection` resolved the test-runner issue without changing test inputs or assertions. The first full run also used the global pytest instead of the repository `.venv`; it lacked `psycopg_pool` and hit a subprocess handle error. The full suite passed when run with `.venv\Scripts\pytest.exe`.
+- Ops/frontdesk verification: the focused API, frontdesk, and Postgres tests passed (49 passed). Full `pytest` with the required `DATABASE_URL` and `PYTHON_DOTENV_DISABLED=1`, using the project virtualenv: **274 passed, 13 warnings in 55.41s** (zero failures). The new tests verify public HTML shells, absence of seeded patient data, and 401/403 behavior across every `/ops/api` and `/frontdesk/api` route. No `.env` access, eval execution, OpenRouter request, or Docker build.
+- Ops page verification: inline JavaScript passed `node --check`; the in-browser rendering check was done by the pod, not the agent.
+- Static-page encoding correction: serve all HTML shells with `text/html; charset=utf-8`, repair the root page's mojibake separator and legacy bytes, and place its UTF-8 declaration first in `<head>`. Tests verify response charset, strict UTF-8 byte decoding, and charset-meta placement for each static page.
+- What the agent got wrong: the root page had a CP1252 ellipsis and a standalone `0xB7` separator byte, while its charset declaration was outside a `<head>`. The static-page API tests now check the served bytes and header.
+- Static-page verification: full `pytest` with the required local `DATABASE_URL` and `PYTHON_DOTENV_DISABLED=1`, using `.venv\Scripts\pytest.exe`: **274 passed, 13 warnings in 55.90s**. `git diff --check` and strict UTF-8/meta checks passed. No `.env` access, eval execution, model request, or Docker build.
+- Submission-freeze update: replace the Core-only tier summary, add Known gaps and the Day-8 change-request status, and add the p.47 checklist and local synthetic demo instructions in `docs/submission.md`.
+- What the agent got wrong: the README's old tier sentence omitted the Pro platform items; the submission request caught the mismatch. The API tests already checked response charset and UTF-8 decoding, but not the actual My records separator, so `test_static_page` now asserts the `·` join and rejects `�`.
+- Submission-freeze verification: full `.venv\Scripts\pytest.exe` with the required local `DATABASE_URL` and `PYTHON_DOTENV_DISABLED=1`: **274 passed, 13 warnings in 49.85s** (zero failures). `git diff --check` and static UTF-8/meta checks passed. No `.env` access, eval execution, model request, or Docker build.

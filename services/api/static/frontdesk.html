@@ -1,13 +1,133 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><title>Sahyog Front desk</title>
-<style>body{font:16px system-ui;max-width:1100px;margin:30px auto;color:#183b38}table{width:100%;border-collapse:collapse}td,th{padding:10px;text-align:left;border-bottom:1px solid #ccc}button,input{font:inherit;padding:8px;margin:5px}</style>
-<h1>Front desk</h1><label>Staff ID <input id="staff" value="FD01"></label><button id="refresh">Refresh</button><p id="error" role="alert"></p>
-<h2>Escalation queue</h2><table id="queue"></table><h2>Bookings</h2><label>Booked by <select id="by"><option>assistant</option><option>front_desk</option><option>patient</option></select></label><table id="bookings"></table>
-<script>
-const $=id=>document.getElementById(id);
-async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{Authorization:'Bearer demo-staff-'+$('staff').value.trim(),...(body?{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()}:{})},...(body?{body:JSON.stringify(body)}:{})});const d=await r.json();if(!r.ok)throw Error(d.detail);return d;}
-function cell(tr,text){const td=document.createElement('td');td.textContent=text??'';tr.append(td);return td;}
-async function refresh(){try{$('error').textContent='';const q=await api('/frontdesk/escalations?status=open');$('queue').replaceChildren();for(const e of q){const tr=document.createElement('tr');for(const v of [e.patient_id,e.purpose,e.at_display,JSON.stringify(e.detail)])cell(tr,v);const b=document.createElement('button');b.textContent='Handled';b.onclick=()=>act('/frontdesk/escalations/'+e.id+'/handled',{});cell(tr,'').append(b);$('queue').append(tr);}const bs=await api('/frontdesk/bookings?booked_by='+$('by').value);$('bookings').replaceChildren();for(const a of bs){const tr=document.createElement('tr');for(const v of [a.patient_id,a.doctor||a.doctor_name,a.clinic,a.starts_at_display,a.status])cell(tr,v);if(a.status==='booked'){const td=cell(tr,'');const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.onclick=()=>act('/frontdesk/bookings/'+a.appt_id+'/cancel',{});const slot=document.createElement('input');slot.placeholder='New slot ID';slot.setAttribute('aria-label','New slot ID');const move=document.createElement('button');move.textContent='Move';move.onclick=()=>{if(slot.value.trim())act('/frontdesk/bookings/'+a.appt_id+'/move',{slot_id:slot.value.trim()});};td.append(cancel,slot,move);}$('bookings').append(tr);}}catch(e){$('error').textContent=e.message;}}
-let acting=false;
-async function act(path,body){if(acting)return;acting=true;const buttons=[...document.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);$('error').textContent='Working… (this can take up to 15 s)';try{await api(path,body);await refresh();}catch(e){$('error').textContent=e.message;}finally{acting=false;buttons.forEach(b=>b.disabled=false);}}
-$('refresh').onclick=refresh;$('by').onchange=refresh;
-</script></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sahyog Front desk</title>
+  <style>
+    body { font: 16px system-ui; max-width: 1100px; margin: 30px auto; color: #183b38; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { padding: 10px; text-align: left; border-bottom: 1px solid #ccc; }
+    button, input { font: inherit; padding: 8px; margin: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Front desk</h1>
+  <form id="staff-auth">
+    <label>Signed in as <input id="staff" autocomplete="username"></label>
+    <button id="refresh">Refresh</button>
+  </form>
+  <p id="error" role="alert"></p>
+  <h2>Escalation queue</h2>
+  <table id="queue"></table>
+  <h2>Bookings</h2>
+  <label>Booked by
+    <select id="by"><option>assistant</option><option>front_desk</option><option>patient</option></select>
+  </label>
+  <table id="bookings"></table>
+  <script>
+    const $ = id => document.getElementById(id);
+    const tokenKey = "sahyogStaffToken";
+    const tokenPrefix = "demo-" + "staff-";
+    const savedToken = sessionStorage.getItem(tokenKey) || "";
+    $("staff").value = savedToken.startsWith(tokenPrefix) ? savedToken.slice(tokenPrefix.length) : "";
+
+    async function api(path, body) {
+      const options = {
+        method: body ? "POST" : "GET",
+        headers: {
+          Authorization: `Bearer ${sessionStorage.getItem(tokenKey) || ""}`,
+          ...(body ? { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() } : {})
+        },
+        ...(body ? { body: JSON.stringify(body) } : {})
+      };
+      const response = await fetch(path, options);
+      const data = await response.json();
+      if (!response.ok) throw Error(data.detail);
+      return data;
+    }
+
+    function cell(row, text) {
+      const td = document.createElement("td");
+      td.textContent = text ?? "";
+      row.append(td);
+      return td;
+    }
+
+    async function refresh() {
+      try {
+        $("error").textContent = "";
+        const queue = await api("/frontdesk/api/escalations?status=open");
+        $("queue").replaceChildren();
+        for (const escalation of queue) {
+          const row = document.createElement("tr");
+          for (const value of [escalation.patient_id, escalation.purpose, escalation.at_display, JSON.stringify(escalation.detail)]) {
+            cell(row, value);
+          }
+          const handled = document.createElement("button");
+          handled.textContent = "Handled";
+          handled.onclick = () => act(`/frontdesk/api/escalations/${escalation.id}/handled`, {});
+          cell(row, "").append(handled);
+          $("queue").append(row);
+        }
+
+        const bookings = await api(`/frontdesk/api/bookings?booked_by=${$("by").value}`);
+        $("bookings").replaceChildren();
+        for (const booking of bookings) {
+          const row = document.createElement("tr");
+          for (const value of [booking.patient_id, booking.doctor || booking.doctor_name, booking.clinic,
+            booking.starts_at_display, booking.status]) {
+            cell(row, value);
+          }
+          if (booking.status === "booked") {
+            const actions = cell(row, "");
+            const cancel = document.createElement("button");
+            cancel.textContent = "Cancel";
+            cancel.onclick = () => act(`/frontdesk/api/bookings/${booking.appt_id}/cancel`, {});
+            const slot = document.createElement("input");
+            slot.placeholder = "New slot ID";
+            slot.setAttribute("aria-label", "New slot ID");
+            const move = document.createElement("button");
+            move.textContent = "Move";
+            move.onclick = () => {
+              if (slot.value.trim()) {
+                act(`/frontdesk/api/bookings/${booking.appt_id}/move`, { slot_id: slot.value.trim() });
+              }
+            };
+            actions.append(cancel, slot, move);
+          }
+          $("bookings").append(row);
+        }
+      } catch (error) {
+        $("error").textContent = error.message;
+      }
+    }
+
+    let acting = false;
+    async function act(path, body) {
+      if (acting) return;
+      acting = true;
+      const buttons = [...document.querySelectorAll("button")];
+      buttons.forEach(button => button.disabled = true);
+      $("error").textContent = "Workingâ€¦ (this can take up to 15 s)";
+      try {
+        await api(path, body);
+        await refresh();
+      } catch (error) {
+        $("error").textContent = error.message;
+      } finally {
+        acting = false;
+        buttons.forEach(button => button.disabled = false);
+      }
+    }
+
+    $("staff-auth").addEventListener("submit", event => {
+      event.preventDefault();
+      sessionStorage.setItem(tokenKey, `${tokenPrefix}${$("staff").value.trim()}`);
+      refresh();
+    });
+    $("by").onchange = refresh;
+    if (savedToken) refresh();
+  </script>
+</body>
+</html>

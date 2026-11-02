@@ -14,7 +14,13 @@ to the page it came from.
 - **Measured, not asserted** — golden evaluation sets written before the code; results in `evals/report.md`, generated
   from saved runs.
 
-**Tier reached:** Core — W1 triage and booking, W2 records Q&A, front desk, PDF upload (details below) · see evals/report.md for current results, including a W1 specialty-accuracy regression under investigation.
+**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet. Not built: W3 scribe (designed in [docs/diagrams/w3-graph.md](docs/diagrams/w3-graph.md)), Presidio egress replay, async ingest queue, 80-case evals with a calibrated judge, Architect tier.
+
+## Known gaps
+
+- Evaluation targets and unmeasured outcomes: [evals/report.md](evals/report.md).
+- Security controls and residual deployment risks: [D7 threat model](docs/d7-threat-model.md).
+- **Day-8 change request:** Not received at submission; template ready in [docs/change-request/](docs/change-request/).
 
 ## Layout (deck p.48)
 ```
@@ -68,11 +74,10 @@ After the database setup and W2 fixture ingestion below, run locally from the ac
 
 ```powershell
 $env:DATABASE_URL="postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog"
-$env:SAHYOG_DEMO_AUTH="1"
 python -m uvicorn services.api.main:app --port 8000
 ```
 
-Supply `OPENROUTER_API_KEY` and the model environment variables in the repo-root `.env` or your shell before starting locally. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled above).
+The copied repo-root `.env` supplies `SAHYOG_DEMO_AUTH=1` for local runs; do not set it in production. Supply `OPENROUTER_API_KEY` and the model environment variables there as well. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled by `.env`).
 
 ### When the model is slow or down
 
@@ -86,9 +91,9 @@ Migration 007 stores allowlisted request, graph-node, tool and model spans in Po
 no prompts, questions, symptom text or patient IDs; the audit log maps trace IDs to patients. To
 apply pending SQL migrations and seed the local fixtures, run `python tools/migrate.py`.
 
-The ops JSON endpoints (`/ops/summary`, `/ops/traces/{trace_id}`) require the dev-only
+The ops JSON endpoints (`/ops/api/summary`, `/ops/api/traces/{trace_id}`) require the dev-only
 `Bearer demo-ops-<ID>` role; patients and front desk receive 403. Open `/?view=ops`, enter the ops
-ID, and load the sourced tiles. The direct `/ops` page endpoint also requires an ops bearer token.
+ID, and load the sourced tiles. The direct `/ops` page serves the same static shell without authentication; its data requests remain role-protected.
 Every displayed tile includes its source; unavailable metrics are omitted. `OPS_REVIEW_SLA_MINUTES`
 sets the escalation review SLA (defaults to the existing front-desk SLA setting).
 

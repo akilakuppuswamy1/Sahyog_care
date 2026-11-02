@@ -11,17 +11,23 @@
     article { border: 1px solid #cbd8d5; border-radius: 8px; padding: 1rem; }
     article h2 { font-size: 1rem; margin: 0 0 .75rem; }
     .value { font-size: 1.25rem; overflow-wrap: anywhere; }
+    .value.good { color: #176b3a; }
+    .value.bad { color: #b42318; }
+    .detail { color: #52656e; font-size: .9rem; margin-top: .35rem; }
     .source { color: #52656e; font-size: .85rem; margin-top: .75rem; }
     form { margin: 2rem 0 1rem; display: flex; flex-wrap: wrap; gap: .5rem; }
     input { min-width: 20rem; flex: 1; padding: .5rem; }
     button { padding: .5rem .8rem; }
-    pre { overflow: auto; background: #f3f6f5; padding: 1rem; }
+    .trace { overflow: auto; background: #f3f6f5; padding: 1rem; }
+    .trace ul { list-style: none; margin: 0; padding-left: 1.25rem; }
+    .trace > ul { padding-left: 0; }
+    .trace li { margin: .25rem 0; }
   </style>
 </head>
 <body>
   <h1>Operations</h1>
   <form id="ops-auth-form">
-    <label for="ops-id">Ops ID</label>
+    <label for="ops-id">Signed in as</label>
     <input id="ops-id" required autocomplete="username">
     <button>Load sourced metrics</button>
   </form>
@@ -31,18 +37,92 @@
     <input id="trace-id" required autocomplete="off">
     <button>View trace</button>
   </form>
-  <pre id="trace" aria-live="polite"></pre>
+  <div id="trace" class="trace" aria-live="polite"></div>
   <script>
     const tiles = document.getElementById("tiles");
     const traceOutput = document.getElementById("trace");
     const opsInput = document.getElementById("ops-id");
-    opsInput.value = sessionStorage.getItem("sahyogOpsId") || "";
+    const tokenKey = "sahyogOpsToken";
+    const tokenPrefix = "demo-" + "ops-";
+    const savedToken = sessionStorage.getItem(tokenKey) || "";
+    opsInput.value = savedToken.startsWith(tokenPrefix) ? savedToken.slice(tokenPrefix.length) : "";
+
     function headers() {
-      return { Authorization: `Bearer demo-ops-${sessionStorage.getItem("sahyogOpsId") || ""}` };
+      return { Authorization: `Bearer ${sessionStorage.getItem(tokenKey) || ""}` };
     }
+
+    function numberText(value, digits = 1) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(digits).replace(/\.0$/, "") : String(value);
+    }
+
+    function percentText(value) {
+      const percent = Number(value) * 100;
+      return Number.isFinite(percent) ? `${numberText(percent)}%` : String(value);
+    }
+
+    function formatTile(tile) {
+      const value = tile.value;
+      const formatted = { text: String(value), status: "", detail: "" };
+      if (tile.id === "breaker-state") {
+        const open = Number(value.open) || 0;
+        const halfOpen = Number(value.half_open) || 0;
+        formatted.text = open === 0 && halfOpen === 0
+          ? "All closed" : `${open} open · ${halfOpen} half-open`;
+        formatted.status = open > 0 ? "bad" : "good";
+      } else if (tile.id === "red-flag-recall") {
+        formatted.text = percentText(value);
+        formatted.status = Number(value) === 1 ? "good" : "bad";
+      } else if (tile.id === "scope-leaks") {
+        formatted.text = String(value);
+        formatted.status = Number(value) === 0 ? "good" : "bad";
+      } else if (tile.id === "review-queue") {
+        const open = Number(value.open) || 0;
+        formatted.text = open === 0 ? "None waiting"
+          : `${open} waiting · oldest ${numberText(value.oldest_age_minutes)} min · `
+            + `${value.over_sla} over ${numberText(value.sla_minutes)} min SLA`;
+      } else if (tile.id === "triage-p95" || tile.id === "record-p95") {
+        const target = tile.id === "triage-p95" ? 4 : 8;
+        const seconds = Number(value.p95_ms) / 1000;
+        formatted.text = `p95 ${numberText(seconds)} s (n = ${value.count}, last 24 h)`;
+        formatted.detail = `Target: ≤ ${target} s`;
+        formatted.status = seconds <= target ? "good" : "bad";
+      } else if (tile.id === "cost-per-run") {
+        const amount = Number(value.average);
+        const cost = Number.isFinite(amount)
+          ? amount.toFixed(8).replace(/0+$/, "").replace(/\.$/, "") : String(value.average);
+        formatted.text = `$${cost} per triage turn · price date: ${value.price_date}`;
+      } else if (tile.id === "degraded-rate") {
+        formatted.text = percentText(value);
+      } else if (tile.id === "pick-slot-wait") {
+        formatted.text = `p95 ${numberText(Number(value.p95_ms) / 1000)} s (n = ${value.count})`;
+      } else if (value && typeof value === "object") {
+        formatted.text = Object.entries(value)
+          .map(([key, item]) => `${key.replaceAll("_", " ")}: ${String(item)}`).join(" · ");
+      }
+      return formatted;
+    }
+
+    function formatDuration(durationMs) {
+      const duration = Number(durationMs);
+      if (!Number.isFinite(duration)) return "duration unavailable";
+      return duration >= 1000 ? `${numberText(duration / 1000, 2)} s` : `${numberText(duration)} ms`;
+    }
+
+    function appendTraceNodes(parent, spans) {
+      const list = document.createElement("ul");
+      for (const span of spans) {
+        const item = document.createElement("li");
+        item.textContent = `${span.kind}: ${span.name} · ${formatDuration(span.duration_ms)}`;
+        if (span.children && span.children.length) appendTraceNodes(item, span.children);
+        list.append(item);
+      }
+      parent.append(list);
+    }
+
     async function loadSummary() {
       tiles.replaceChildren();
-      const response = await fetch("/ops/summary", { headers: headers() });
+      const response = await fetch("/ops/api/summary", { headers: headers() });
       if (!response.ok) throw new Error(`Operations data unavailable (${response.status})`);
       const data = await response.json();
       for (const tile of data.tiles) {
@@ -52,26 +132,40 @@
         title.textContent = tile.label;
         const value = document.createElement("div");
         value.className = "value";
-        value.textContent = typeof tile.value === "object" ? JSON.stringify(tile.value) : String(tile.value);
+        const formatted = formatTile(tile);
+        value.textContent = formatted.text;
+        if (formatted.status) value.classList.add(formatted.status);
+        const detail = document.createElement("div");
+        detail.className = "detail";
+        detail.textContent = formatted.detail;
         const source = document.createElement("div");
         source.className = "source";
         source.textContent = `Source: ${tile.source}`;
-        card.append(title, value, source);
+        card.append(title, value);
+        if (formatted.detail) card.append(detail);
+        card.append(source);
         tiles.append(card);
       }
     }
+
     document.getElementById("ops-auth-form").addEventListener("submit", async event => {
       event.preventDefault();
-      sessionStorage.setItem("sahyogOpsId", opsInput.value.trim());
+      sessionStorage.setItem(tokenKey, `${tokenPrefix}${opsInput.value.trim()}`);
       try { await loadSummary(); }
       catch (error) { tiles.textContent = error.message; }
     });
+
     document.getElementById("trace-form").addEventListener("submit", async event => {
       event.preventDefault();
       const id = document.getElementById("trace-id").value.trim();
-      const response = await fetch(`/ops/traces/${encodeURIComponent(id)}`, { headers: headers() });
-      traceOutput.textContent = response.ok ? JSON.stringify(await response.json(), null, 2)
-        : `Trace unavailable (${response.status})`;
+      const response = await fetch(`/ops/api/traces/${encodeURIComponent(id)}`, { headers: headers() });
+      traceOutput.replaceChildren();
+      if (!response.ok) {
+        traceOutput.textContent = `Trace unavailable (${response.status})`;
+        return;
+      }
+      const tree = await response.json();
+      appendTraceNodes(traceOutput, tree.spans);
     });
   </script>
 </body>

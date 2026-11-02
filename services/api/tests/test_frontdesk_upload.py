@@ -34,19 +34,19 @@ def test_redirect(client,text):
 def test_red_flag_queue_and_handling(client):
     r=client.post('/w1/triage',headers=token(),json={'text':'what is my HbA1c, also crushing chest pain right now'}).json()
     assert r['route']=='emergency_desk' and client.app.state.deps.w1_llm.sent==[]
-    q=client.get('/frontdesk/escalations',headers=token('staff-FD1')).json()
+    q=client.get('/frontdesk/api/escalations',headers=token('staff-FD1')).json()
     assert len(q)==1 and q[0]['patient_id']=='PT-A'
-    path=f"/frontdesk/escalations/{q[0]['id']}/handled"
+    path=f"/frontdesk/api/escalations/{q[0]['id']}/handled"
     assert client.post(path,headers=token('staff-FD1')).status_code==200
     assert client.post(path,headers=token('staff-FD2')).status_code==200
-    assert client.get('/frontdesk/escalations',headers=token('staff-FD1')).json()==[]
-    assert client.get('/frontdesk/escalations?status=handled',headers=token('staff-FD1')).json()[0]['status']=='handled'
+    assert client.get('/frontdesk/api/escalations',headers=token('staff-FD1')).json()==[]
+    assert client.get('/frontdesk/api/escalations?status=handled',headers=token('staff-FD1')).json()[0]['status']=='handled'
 
 
 @pytest.mark.parametrize('method,path,body',[
- ('get','/frontdesk',None),('get','/frontdesk/escalations',None),('get','/frontdesk/bookings',None),
- ('post','/frontdesk/escalations/1/handled',None),('post','/frontdesk/bookings/missing/cancel',None),
- ('post','/frontdesk/bookings/missing/move',{'slot_id':'S1'})])
+ ('get','/frontdesk/api/escalations',None),('get','/frontdesk/api/bookings',None),
+ ('post','/frontdesk/api/escalations/1/handled',None),('post','/frontdesk/api/bookings/missing/cancel',None),
+ ('post','/frontdesk/api/bookings/missing/move',{'slot_id':'S1'})])
 def test_patient_cannot_staff(client,method,path,body):
     assert getattr(client,method)(path,headers=token(),**({'json':body} if body else {})).status_code==403
 
@@ -68,7 +68,7 @@ def test_override_replay_audit(client,move):
     store=client.app.state.deps.store
     aid=store.book('PT-A',store.doctors[0]['slot_id'],uuid4().hex)
     slot=store.doctors[1]['slot_id']
-    path=f"/frontdesk/bookings/{aid}/"+('move' if move else 'cancel')
+    path=f"/frontdesk/api/bookings/{aid}/"+('move' if move else 'cancel')
     h=token('staff-FD1')
     response=client.post(path,headers=h,**({'json':{'slot_id':slot}} if move else {}))
     assert response.status_code==200,response.text
@@ -80,10 +80,14 @@ def test_override_replay_audit(client,move):
     events=[e for e in store.events if e.get('actor_role')=='front_desk']
     assert all(e['actor_id']=='FD1' for e in events)
     assert sum(e['action']=='override' for e in events)==1
-    assert client.get('/frontdesk/bookings',headers=token('staff-FD1')).status_code==200
+    assert client.get('/frontdesk/api/bookings',headers=token('staff-FD1')).status_code==200
 
 
-@pytest.mark.parametrize('data,mime,status',[(b'hello','application/pdf',415),(b'%PDF-'+b'x'*(10*1024*1024),'application/pdf',413),(b'%PDF-x','text/plain',415)])
+@pytest.mark.parametrize('data,mime,status',[
+    (b'hello','application/pdf',415),
+    (b'%PDF-'+b'x'*(10*1024*1024),'application/pdf',413),
+    (b'%PDF-x','text/plain',415),
+],ids=['invalid-signature','oversize','wrong-content-type'])
 def test_upload_rejection(client,data,mime,status):
     assert client.post('/records/upload',headers=token(),files={'file':('x.pdf',data,mime)}).status_code==status
 
