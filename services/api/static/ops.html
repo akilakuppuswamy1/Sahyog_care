@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sahyog operations</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 1000px; padding: 0 1rem; color: #172b3a; }
+    h1 { color: #145b55; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+    article { border: 1px solid #cbd8d5; border-radius: 8px; padding: 1rem; }
+    article h2 { font-size: 1rem; margin: 0 0 .75rem; }
+    .value { font-size: 1.25rem; overflow-wrap: anywhere; }
+    .source { color: #52656e; font-size: .85rem; margin-top: .75rem; }
+    form { margin: 2rem 0 1rem; display: flex; flex-wrap: wrap; gap: .5rem; }
+    input { min-width: 20rem; flex: 1; padding: .5rem; }
+    button { padding: .5rem .8rem; }
+    pre { overflow: auto; background: #f3f6f5; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Operations</h1>
+  <form id="ops-auth-form">
+    <label for="ops-id">Ops ID</label>
+    <input id="ops-id" required autocomplete="username">
+    <button>Load sourced metrics</button>
+  </form>
+  <section class="tiles" id="tiles" aria-live="polite"></section>
+  <form id="trace-form">
+    <label for="trace-id">Trace ID</label>
+    <input id="trace-id" required autocomplete="off">
+    <button>View trace</button>
+  </form>
+  <pre id="trace" aria-live="polite"></pre>
+  <script>
+    const tiles = document.getElementById("tiles");
+    const traceOutput = document.getElementById("trace");
+    const opsInput = document.getElementById("ops-id");
+    opsInput.value = sessionStorage.getItem("sahyogOpsId") || "";
+    function headers() {
+      return { Authorization: `Bearer demo-ops-${sessionStorage.getItem("sahyogOpsId") || ""}` };
+    }
+    async function loadSummary() {
+      tiles.replaceChildren();
+      const response = await fetch("/ops/summary", { headers: headers() });
+      if (!response.ok) throw new Error(`Operations data unavailable (${response.status})`);
+      const data = await response.json();
+      for (const tile of data.tiles) {
+        if (!tile.source) continue;
+        const card = document.createElement("article");
+        const title = document.createElement("h2");
+        title.textContent = tile.label;
+        const value = document.createElement("div");
+        value.className = "value";
+        value.textContent = typeof tile.value === "object" ? JSON.stringify(tile.value) : String(tile.value);
+        const source = document.createElement("div");
+        source.className = "source";
+        source.textContent = `Source: ${tile.source}`;
+        card.append(title, value, source);
+        tiles.append(card);
+      }
+    }
+    document.getElementById("ops-auth-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      sessionStorage.setItem("sahyogOpsId", opsInput.value.trim());
+      try { await loadSummary(); }
+      catch (error) { tiles.textContent = error.message; }
+    });
+    document.getElementById("trace-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const id = document.getElementById("trace-id").value.trim();
+      const response = await fetch(`/ops/traces/${encodeURIComponent(id)}`, { headers: headers() });
+      traceOutput.textContent = response.ok ? JSON.stringify(await response.json(), null, 2)
+        : `Trace unavailable (${response.status})`;
+    });
+  </script>
+</body>
+</html>

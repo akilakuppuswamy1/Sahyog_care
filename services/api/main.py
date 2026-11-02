@@ -3,6 +3,7 @@ import logging
 import hashlib
 import json
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +19,7 @@ from services.common.timefmt import ist
 from services.api.auth import current_user
 from services.api.deps import build_postgres_deps
 from services.api.ratelimit import RateLimiter
+from services.api.ops import build_ops_summary, build_trace_tree
 
 UPLOAD_ROOT = Path(__file__).resolve().parents[2] / "data" / "uploads"
 
@@ -83,24 +85,37 @@ def create_app(deps_factory=build_postgres_deps):
                                  kind, request.state.trace_id, {"bucket": kind})
             raise HTTPException(429, "Rate limit exceeded", headers={"Retry-After": str(retry)})
 
+    def trace_span(deps, kind, name, workflow, trace_id):
+        tracer = getattr(deps, "tracer", None)
+        return (tracer.span(kind, name, workflow=workflow, trace_id=trace_id)
+                if tracer else nullcontext())
+
     @app.middleware("http")
     async def request_log(request, call_next):
         request.state.trace_id = uuid4().hex
         started = time.perf_counter()
         status = 500
+        deps = getattr(request.app.state, "deps", None)
+        tracer = getattr(deps, "tracer", None)
         try:
-            try:
-                response = await call_next(request)
-            except Exception:
-                response = JSONResponse({"detail": "Internal server error"}, status_code=500)
-            status = response.status_code
-            if request.url.path.startswith(("/w1/", "/w2/")):
-                response.headers["X-Trace-Id"] = request.state.trace_id
-                if getattr(request.state, "thread_id", None):
-                    response.headers["X-Thread-Id"] = request.state.thread_id
-                if getattr(request.state, "degraded", False):
-                    response.headers["X-Degraded"] = "true"
-            return response
+            with trace_span(deps, "http", f"{request.method} {request.url.path}", "",
+                            request.state.trace_id) as http_span:
+                try:
+                    response = await call_next(request)
+                except Exception:
+                    response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+                status = response.status_code
+                if status >= 500:
+                    http_span.set_status("error") if tracer else None
+                elif getattr(request.state, "degraded", False):
+                    http_span.set_status("degraded") if tracer else None
+                if request.url.path.startswith(("/w1/", "/w2/")):
+                    response.headers["X-Trace-Id"] = request.state.trace_id
+                    if getattr(request.state, "thread_id", None):
+                        response.headers["X-Thread-Id"] = request.state.thread_id
+                    if getattr(request.state, "degraded", False):
+                        response.headers["X-Degraded"] = "true"
+                return response
         finally:
             route = request.scope.get("route")
             user = getattr(request.state, "user", None)
@@ -117,6 +132,30 @@ def create_app(deps_factory=build_postgres_deps):
     @app.get("/health")
     def health():
         return {"status": "ok"}
+
+    @app.get("/ops")
+    def ops_page(request: Request, user: str = Depends(current_user)):
+        if not user or request.state.role != "ops":
+            raise HTTPException(403, "Role not permitted")
+        return FileResponse(Path(__file__).parent / "static" / "ops.html")
+
+    @app.get("/ops/summary")
+    def ops_summary(request: Request, user: str = Depends(current_user)):
+        if not user or request.state.role != "ops":
+            raise HTTPException(403, "Role not permitted")
+        deps = request.app.state.deps
+        with deps.lock:
+            return build_ops_summary(deps)
+
+    @app.get("/ops/traces/{trace_id}")
+    def ops_trace(trace_id: str, request: Request, user: str = Depends(current_user)):
+        if not user or request.state.role != "ops":
+            raise HTTPException(403, "Role not permitted")
+        deps = request.app.state.deps
+        tree = build_trace_tree(deps, trace_id)
+        if tree is None:
+            raise HTTPException(404, "Trace not found")
+        return tree
 
     def current_w1(deps, user, thread, request=None):
         row = deps.w1_requests.get(user, thread)
@@ -135,6 +174,8 @@ def create_app(deps_factory=build_postgres_deps):
     @app.get("/w1/{thread_id}")
     def w1_status(thread_id: str, request: Request, user: str = Depends(current_user)):
         request.state.thread_id = thread_id
+        if request.app.state.deps.tracer:
+            request.app.state.deps.tracer.set_trace_id(thread_id)
         return current_w1(request.app.state.deps, user, thread_id, request)
 
     @app.post("/w1/triage")
@@ -145,13 +186,18 @@ def create_app(deps_factory=build_postgres_deps):
         thread, claimed = deps.w1_requests.claim(user, key, uuid4().hex)
         request.state.trace_id = thread
         request.state.thread_id = thread
+        if deps.tracer:
+            deps.tracer.set_trace_id(thread)
         if not claimed:
             return current_w1(deps, user, thread, request)
-        with deps.lock:
-            out = deps.w1.invoke(dict(text=body.text, age=body.age, patient_id=user,
-                                      trace_id=thread, idempotency_key=key),
-                                 {"configurable": {"thread_id": thread}})
-            deps.w1_requests.finish(user, thread)
+        with trace_span(deps, "node", "triage_turn", "w1", thread) as span:
+            with deps.lock:
+                out = deps.w1.invoke(dict(text=body.text, age=body.age, patient_id=user,
+                                          trace_id=thread, idempotency_key=key),
+                                     {"configurable": {"thread_id": thread}})
+                deps.w1_requests.finish(user, thread)
+            if out.get("degraded"):
+                span.set_status("degraded") if deps.tracer else None
         request.state.model_route = out.get("route")
         request.state.degraded = bool(out.get("degraded", False))
         return w1_response(thread, out)
@@ -168,6 +214,8 @@ def create_app(deps_factory=build_postgres_deps):
             request.state.degraded = bool(state.values.get("degraded", False))
             request.state.trace_id = thread_id
             request.state.thread_id = thread_id
+            if deps.tracer:
+                deps.tracer.set_trace_id(thread_id)
             if (user, key) in replays:
                 result = replays[user, key]
                 if result["thread_id"] != thread_id:
@@ -182,7 +230,10 @@ def create_app(deps_factory=build_postgres_deps):
             limit(request, user, "book" if booking else "read")
             if booking and body.value not in {c["slot_id"] for c in state.values.get("candidates", [])}:
                 raise HTTPException(400, "Choose one of the offered slots")
-            out = deps.w1.invoke(Command(resume=body.value, update={"idempotency_key": key}), cfg)
+            with trace_span(deps, "node", "triage_turn", "w1", thread_id) as span:
+                out = deps.w1.invoke(Command(resume=body.value, update={"idempotency_key": key}), cfg)
+                if out.get("degraded"):
+                    span.set_status("degraded") if deps.tracer else None
             replays[user, key] = w1_response(thread_id, out)
             request.state.model_route = out.get("route")
             request.state.degraded = bool(out.get("degraded", False))
@@ -193,10 +244,13 @@ def create_app(deps_factory=build_postgres_deps):
         limit(request, user, "read")
         subject = body.subject_id or user
         deps = request.app.state.deps
-        with deps.lock:
-            out = deps.w2.invoke(dict(actor_id=user, subject_id=subject,
-                                     actor_role="patient" if subject == user else "caregiver",
-                                     question=body.question))
+        with trace_span(deps, "node", "record_answer", "w2", request.state.trace_id) as span:
+            with deps.lock:
+                out = deps.w2.invoke(dict(actor_id=user, subject_id=subject,
+                                         actor_role="patient" if subject == user else "caregiver",
+                                         question=body.question, trace_id=request.state.trace_id))
+            if out.get("degraded"):
+                span.set_status("degraded") if deps.tracer else None
         request.state.trace_id = out.get("trace_id") or request.state.trace_id
         request.state.model_route = out.get("route")
         request.state.degraded = bool(out.get("degraded", False))
@@ -312,7 +366,8 @@ def create_app(deps_factory=build_postgres_deps):
 
     @app.get("/")
     def index(request: Request):
-        page = "frontdesk.html" if request.query_params.get("view") == "frontdesk" else "index.html"
+        view = request.query_params.get("view")
+        page = "frontdesk.html" if view == "frontdesk" else "ops.html" if view == "ops" else "index.html"
         return FileResponse(Path(__file__).parent / "static" / page)
 
     return app

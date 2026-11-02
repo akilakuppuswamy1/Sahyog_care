@@ -11,11 +11,15 @@ def current_user(request: Request, authorization: str | None = Header(default=No
         if match:
             identity = match[1]
             staff = identity.startswith("staff-")
-            if staff and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", identity[6:]):
+            ops = identity.startswith("ops-")
+            subject = identity[5:] if ops else identity[6:] if staff else identity
+            if (staff or ops) and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", subject):
                 raise HTTPException(401, "Authentication required")
-            request.state.user = identity[6:] if staff else identity
-            request.state.role = "front_desk" if staff else "patient"
-            if request.url.path.startswith("/frontdesk") != staff:
+            request.state.user = subject
+            request.state.role = "ops" if ops else "front_desk" if staff else "patient"
+            if request.url.path.startswith("/frontdesk") != staff or request.url.path.startswith("/ops") != ops:
+                raise HTTPException(403, "Role not permitted")
+            if ops and not request.url.path.startswith("/ops"):
                 raise HTTPException(403, "Role not permitted")
             return request.state.user
     raise HTTPException(401, "Authentication required", headers={"WWW-Authenticate": "Bearer"})

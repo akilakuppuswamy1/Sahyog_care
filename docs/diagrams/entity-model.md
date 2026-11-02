@@ -1,9 +1,10 @@
-# Entity model — migrations 001–006
+# Entity model — migrations 001–007
 
-Derived from the checked-in SQL, including all 17 persistent application tables and columns.
+Derived from the checked-in SQL, including all 18 persistent application tables and columns.
 Migration 002 uses temporary staging tables `_clinic` and `_spec` for loading; these are not persistent entities.
-Migration 003 replaces a trigger function; 004 adds document/chunk columns and indexes; 005–006 add three tables.
-LangGraph creates its own checkpoint tables through `PostgresSaver.setup()`; those are outside migrations 001–006.
+Migration 003 replaces a trigger function; 004 adds document/chunk columns and indexes; 005–006 add three tables;
+007 adds the PHI-free `trace_span` table and audit trace-context trigger.
+LangGraph creates its own checkpoint tables through `PostgresSaver.setup()`; those are outside migrations 001–007.
 
 ```mermaid
 erDiagram
@@ -169,6 +170,23 @@ erDiagram
         boolean running
         timestamptz created_at
     }
+    trace_span {
+        text trace_id
+        text span_id PK
+        text parent_span_id
+        text workflow
+        text name
+        text kind
+        timestamptz started_at
+        double duration_ms
+        text status
+        text model
+        text provider
+        text served_by
+        int tokens_in
+        int tokens_out
+        text error_type
+    }
     specialty ||--o{ doctor : "specialty_id"
     clinic ||--o{ doctor : "clinic_id"
     patient ||--o{ consent : "patient_id"
@@ -198,6 +216,7 @@ erDiagram
 - `doc_chunk(doc_id,patient_id)` references `document(doc_id,patient_id)` with cascade delete; the parent pair is UNIQUE. This is one composite FK, not an independent chunk-to-patient FK.
 - Audit update/delete are refused; `who_saw_record` projects patient-associated read events. Application code must still write the events. Privileged owners can bypass triggers; TRUNCATE is not covered.
 - Migration 005 separates handling and replay state from immutable audit rows; 006 uses `(user_id,idempotency_key)` PK and unique `thread_id`. Neither table declares an FK from user/staff identifiers to patient.
+- Migration 007 stores spans without prompt, question, symptom or patient text/IDs; audit `trace_id` is the correlation path. `purge_trace_spans()` removes rows older than 30 days and must be scheduled by operations.
 - No FK exists for `prescription.medicine_id` (stock key is composite), audit patient/actor IDs, consent grantee, note `signed_by`, or handling staff. These are deliberately not drawn as relationships.
 
-Sources: [001](../../infra/db/001_schema.sql), [002](../../infra/db/002_load_generated.sql), [003](../../infra/db/003_fix_forbid_change_errcode.sql), [004](../../infra/db/004_w2_records.sql), [005](../../infra/db/005_frontdesk.sql), [006](../../infra/db/006_w1_requests.sql).
+Sources: [001](../../infra/db/001_schema.sql), [002](../../infra/db/002_load_generated.sql), [003](../../infra/db/003_fix_forbid_change_errcode.sql), [004](../../infra/db/004_w2_records.sql), [005](../../infra/db/005_frontdesk.sql), [006](../../infra/db/006_w1_requests.sql), [007](../../infra/db/007_tracing.sql).

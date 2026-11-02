@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,23 +98,11 @@ def build_report(runs_dir: Path) -> str:
         lines.append(f"| evals/runs/{p.name} | {meta.get('run_id', 'not recorded')} | {meta.get('model', 'not recorded')} | "
                      f"{meta.get('prompt_version', 'not recorded')} / {meta.get('rules_version', 'not recorded')} | "
                      f"{m.get('latency_p95_s', 'not measured')} | {m.get('fallback_rate', 'not measured')} |")
-    lines += ["", "## Cost (p.34)", "", "C_consult = sum over workflow calls ((input_tokens × PRICE_IN_PER_MTOK + output_tokens × PRICE_OUT_PER_MTOK) / 1,000,000). Add local embedding, hosting, storage and other non-LLM costs separately. Multiply each workflow's measured per-call cost by its calls per consultation; that consultation mix is not measured here.", "", "Prices are optional shell environment values; this script never loads dotenv.", "", f"Price list date: {os.environ.get('PRICE_DATE') or 'to fill'}", "", "| Workflow / run | Calls | Input/output tokens per call | Input/output tokens per evaluated turn or answer | LLM cost per call / evaluated unit |", "|---|---|---|---|---|"]
-    for w, (p, r) in sorted(latest.items()):
-        t = r.get("meta", {}).get("tokens", {})
-        calls = t.get("calls", 0)
-        # W1 unit = each evaluated triage case; W2 = emitted answer routes.
-        units = r["metrics"].get("cases", 0) if w == "w1" else sum(
-            x.get("route") in {"answer", "answer_degraded"} for x in r.get("predictions", []))
-        if not calls or not units or "prompt" not in t or "completion" not in t:
-            lines.append(f"| {w} / {r['meta']['run_id']} | {calls} | not measured | not measured | token totals or denominator unavailable |")
-            continue
-        pin, pout = t["prompt"], t["completion"]
-        cost = "formula above; prices to fill"
-        if os.environ.get("PRICE_IN_PER_MTOK") and os.environ.get("PRICE_OUT_PER_MTOK"):
-            total = (pin * float(os.environ["PRICE_IN_PER_MTOK"]) + pout * float(os.environ["PRICE_OUT_PER_MTOK"])) / 1_000_000
-            cost = f"{total/calls:.8f} / {total/units:.8f} (price currency)"
-        lines.append(f"| {w.upper()} / {r['meta']['run_id']} | {calls} | {pin/calls:.2f} / {pout/calls:.2f} | {pin/units:.2f} / {pout/units:.2f} ({units} {'turns' if w == 'w1' else 'answers'}) | {cost} |")
-    lines += ["", "W2 totals cover all model purposes, including calls ending in fallback; dividing by answer routes is an amortized answer cost, not isolated answer-generation tokens. Shared prices are a scenario only: W1 and W2 use different models, so supply each model's day-of price separately for a billed estimate.", "", "## Misses and incidents", "", "W2 run history (values read from saved JSON):"]
+    lines += ["", "## Cost worksheet (p.34)", "",
+              "See the generated [cost worksheet](../docs/cost-sheet.md) for measured saved-run token totals, "
+              "workflow-specific price formulas, the consultation-cost scenario and documented gaps. "
+              "Generate it with `python tools/build_cost_sheet.py`; no evaluation is run.", "",
+              "## Misses and incidents", "", "W2 run history (values read from saved JSON):"]
     for p, r in runs:
         if p.name.startswith("w2-"):
             m = r["metrics"]

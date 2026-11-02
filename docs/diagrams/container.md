@@ -6,18 +6,19 @@ process and a shared lock. Sources: `services/api/{main,deps,auth,ratelimit}.py`
 
 ```mermaid
 flowchart TB
-    UI[Browser patient and front desk UI - built] --> API
+    UI[Browser patient, front desk and ops UI - built] --> API
     DC[Doctor console - planned Pro] -.-> API
     subgraph India[India boundary - target hosting; local demo today]
-        API[API - built: W1/W2 HTTP routes, front desk, upload]
+        API[API - built: W1/W2 HTTP routes, front desk, ops, upload]
         AUTH[Auth - built demo bearer; OIDC and booking OTP planned Pro]
         RL[Rate limiter - built per patient and IP in process]
         GRAPH[Graph runtime - built W1/W2 LangGraph; W3 planned Pro]
-        PG[(Postgres 16 + pgvector + W1 checkpointer - built)]
+        PG[(Postgres 16 + pgvector + W1 checkpointer + trace_span - built)]
         EMB[Local bge-m3 - built; HashEmbedder in tests]
         ING[PDF upload and background ingest - built]
         EG[Egress adapter - built regex scrub + refuse-to-send]
         AUD[Audit - built explicit writes + append-only trigger + access view]
+        TRACE[Tracing - built exporter interface; Postgres in-region]
         PHI[Presidio and re-identification - planned Pro]
         QUEUE[Durable ingest and W3 review queue - planned Pro]
         REDIS[Gateway and Redis distributed limits - planned Architect]
@@ -33,6 +34,9 @@ flowchart TB
         GRAPH --> EMB
         GRAPH --> EG
         GRAPH --> AUD
+        API --> TRACE
+        GRAPH --> TRACE
+        TRACE --> PG
         AUD --> PG
         PHI -.-> EG
         ING -.-> QUEUE
@@ -44,5 +48,8 @@ flowchart TB
 ```
 
 Only W1 is wired to `PostgresSaver` in the production factory; W2 is request-scoped without a
-checkpointer. Uploads are local files, not a built object store. Audit is not an automatic database
-read interceptor. Planned tier allocations here and in D7 are delivery targets, not implemented guarantees.
+checkpointer. Traces contain no prompt/question/symptom text or patient ID; audit events provide
+the trace-to-patient mapping. The exporter interface permits a future self-hosted Langfuse exporter;
+Langfuse Cloud is rejected for residency. Uploads are local files, not a built object store. Audit is
+not an automatic database read interceptor. Planned tier allocations here and in D7 are delivery
+targets, not implemented guarantees.

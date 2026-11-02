@@ -1,7 +1,8 @@
 """Offline demo bootstrap; no dotenv or remote LLM calls.
 
-000/001 are installed by Postgres on fresh volumes. Later migrations and their
-ledger entries commit together. A session lock serializes concurrent starters.
+000/001 are installed by Postgres on fresh volumes. Later migrations (including
+007 tracing) and their ledger entries commit together. A session lock serializes
+concurrent starters; trace retention is purged by the documented DB function.
 """
 from __future__ import annotations
 

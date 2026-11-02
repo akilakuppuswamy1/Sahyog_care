@@ -12,21 +12,26 @@ from langgraph.graph import END, START, StateGraph
 from services.agent.llm import JsonLLM
 from services.agent.w2 import nodes as n
 from services.agent.w2.nodes import RecordsTools, W2State
+from services.common.tracing import Tracer, traced_node
 
 
 def _after(s: W2State) -> str:
     return "stop" if s.get("route") not in (None, "continue") else "go"
 
 
-def build_w2(llm: JsonLLM, tools: RecordsTools) -> StateGraph:
+def build_w2(llm: JsonLLM, tools: RecordsTools, tracer: Tracer | None = None) -> StateGraph:
     g = StateGraph(W2State)
-    g.add_node("scope_guard", partial(n.scope_guard, tools=tools))
-    g.add_node("doctor_check", partial(n.doctor_check, tools=tools))
-    g.add_node("retrieve", partial(n.retrieve, tools=tools))
-    g.add_node("widen", n.widen)
-    g.add_node("not_found", n.not_found)
-    g.add_node("answer", partial(n.answer, llm=llm))
-    g.add_node("verify", n.verify)
+    nodes = {
+        "scope_guard": partial(n.scope_guard, tools=tools),
+        "doctor_check": partial(n.doctor_check, tools=tools),
+        "retrieve": partial(n.retrieve, tools=tools),
+        "widen": n.widen,
+        "not_found": n.not_found,
+        "answer": partial(n.answer, llm=llm),
+        "verify": n.verify,
+    }
+    for name, function in nodes.items():
+        g.add_node(name, traced_node(tracer, "w2", name, function))
 
     g.add_edge(START, "scope_guard")
     g.add_conditional_edges("scope_guard", _after, {"stop": END, "go": "doctor_check"})
@@ -40,5 +45,5 @@ def build_w2(llm: JsonLLM, tools: RecordsTools) -> StateGraph:
     return g
 
 
-def compile_w2(llm: JsonLLM, tools: RecordsTools, checkpointer=None):
-    return build_w2(llm, tools).compile(checkpointer=checkpointer)
+def compile_w2(llm: JsonLLM, tools: RecordsTools, checkpointer=None, tracer: Tracer | None = None):
+    return build_w2(llm, tools, tracer).compile(checkpointer=checkpointer)

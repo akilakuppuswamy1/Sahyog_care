@@ -31,7 +31,10 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
             # Exercise the actual pool factory, with no dotenv, model, or embedding network access.
             monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: None)
             llm = ScriptedLLM({"w1.red_flag_net": NET_CLEAR, "w1.match": MATCH_ORTHO})
-            monkeypatch.setattr(deps, "OpenRouterLLM", lambda **kw: llm)
+            def fake_llm(**kwargs):
+                llm.tracer = kwargs.get("tracer")
+                return llm
+            monkeypatch.setattr(deps, "OpenRouterLLM", fake_llm)
             monkeypatch.setattr(deps, "BgeM3Embedder", HashEmbedder)
             with psycopg.connect(url, autocommit=True) as seed:
                 sql = (Path(__file__).resolve().parents[3] / "infra/db/001_schema.sql").read_text()
@@ -39,6 +42,7 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                     sql = sql.replace("vector(1024)", "real[]")
                 seed.execute(re.sub(r"^\s*(BEGIN|COMMIT);\s*$", "", sql, flags=re.M))
                 seed.execute((Path(__file__).resolve().parents[3] / "infra/db/006_w1_requests.sql").read_text())
+                seed.execute((Path(__file__).resolve().parents[3] / "infra/db/007_tracing.sql").read_text())
                 seed.execute("""
                     INSERT INTO clinic VALUES ('C1','Test Clinic','Pune','hospital','Pune','08:00','20:00',true,true);
                     INSERT INTO specialty (specialty_id,name) VALUES ('SP07','Orthopaedics');
@@ -58,8 +62,35 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                 assert pool.max_size == 10
                 assert store_conn.autocommit and store_conn.row_factory is tuple_row
                 thread = assert_concurrent_triage(client, llm, headers)
+                w2 = client.post("/w2/ask", headers={"Authorization": "Bearer demo-PT1"},
+                                 json={"question": "W2_PRIVATE_TEXT_MARKER_671 what medicine should I take?"})
+                assert w2.status_code == 200, w2.text
+                w2_trace = w2.json()["trace_id"]
                 with pool.connection() as c:
                     assert c.execute("SELECT count(*) AS n FROM w1_request").fetchone()['n'] == 1
+                    for trace_id, forbidden in (
+                        (thread, ("Knee pain climbing stairs for months", "PT1")),
+                        (w2_trace, ("W2_PRIVATE_TEXT_MARKER_671", "PT1")),
+                    ):
+                        rows = c.execute(
+                            "SELECT trace_id, span_id, parent_span_id, workflow, name, kind, started_at, "
+                            "duration_ms, status, model, provider, served_by, tokens_in, tokens_out, error_type "
+                            "FROM trace_span WHERE trace_id=%s", (trace_id,)).fetchall()
+                        assert rows
+                        safe_text = repr(rows)
+                        assert all(value not in safe_text for value in forbidden)
+                    kinds = {row["kind"] for row in c.execute(
+                        "SELECT kind FROM trace_span WHERE trace_id=%s", (thread,)).fetchall()}
+                    assert kinds >= {"node", "tool", "model"}
+                    audit = c.execute(
+                        "SELECT detail,trace_id FROM audit_event WHERE trace_id=%s AND action='escalate'",
+                        (w2_trace,)).fetchone()
+                    assert audit["detail"]["trace_id"] == audit["trace_id"] == w2_trace
+                    c.execute("""INSERT INTO trace_span
+                        (trace_id,span_id,workflow,name,kind,started_at,duration_ms,status)
+                        VALUES ('expired','expired-span','w1','old','node',now()-interval '31 days',0,'ok')""")
+                    assert c.execute("SELECT purge_trace_spans()").fetchone()["purge_trace_spans"] == 1
+                    assert c.execute("SELECT count(*) AS n FROM trace_span WHERE trace_id='expired'").fetchone()["n"] == 0
             # A fresh dependency factory / process-local cache recovers the same mapping.
             with TestClient(create_app(deps.build_postgres_deps)) as restarted:
                 replay = restarted.post('/w1/triage', headers=headers, json={"text": "same request"})

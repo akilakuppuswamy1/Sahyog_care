@@ -18,6 +18,7 @@ from services.agent.llm import JsonLLM
 from services.agent.store import Store
 from services.agent.w1 import nodes as n
 from services.agent.w1.nodes import W1State
+from services.common.tracing import Tracer, traced_node
 
 
 def _clarify(s: W1State) -> W1State:
@@ -30,20 +31,24 @@ def _present_and_pick(s: W1State) -> W1State:
     return n.apply_choice(s, str(choice))
 
 
-def build_w1(llm: JsonLLM, store: Store) -> StateGraph:
+def build_w1(llm: JsonLLM, store: Store, tracer: Tracer | None = None) -> StateGraph:
     g = StateGraph(W1State)
-    g.add_node("redirect_records", n.redirect_records)
-    g.add_node("intake", n.intake)
-    g.add_node("detect_language", n.detect_language)
-    g.add_node("red_flag_rules", n.red_flag_rules)
-    g.add_node("model_checks", partial(n.model_checks, llm=llm))
-    g.add_node("er_handoff", partial(n.er_handoff, tools=store))
-    g.add_node("clarify", _clarify)
-    g.add_node("front_desk", partial(n.front_desk, tools=store))
-    g.add_node("shortlist", partial(n.shortlist, tools=store))
-    g.add_node("present_and_pick", _present_and_pick)
-    g.add_node("book", partial(n.book, tools=store))
-    g.add_node("notify", partial(n.notify, tools=store))
+    nodes = {
+        "redirect_records": n.redirect_records,
+        "intake": n.intake,
+        "detect_language": n.detect_language,
+        "red_flag_rules": n.red_flag_rules,
+        "model_checks": partial(n.model_checks, llm=llm),
+        "er_handoff": partial(n.er_handoff, tools=store),
+        "clarify": _clarify,
+        "front_desk": partial(n.front_desk, tools=store),
+        "shortlist": partial(n.shortlist, tools=store),
+        "present_and_pick": _present_and_pick,
+        "book": partial(n.book, tools=store),
+        "notify": partial(n.notify, tools=store),
+    }
+    for name, function in nodes.items():
+        g.add_node(name, traced_node(tracer, "w1", name, function))
 
     g.add_edge(START, "intake")
     g.add_edge("intake", "detect_language")
@@ -67,5 +72,5 @@ def build_w1(llm: JsonLLM, store: Store) -> StateGraph:
     return g
 
 
-def compile_w1(llm: JsonLLM, store: Store, checkpointer):
-    return build_w1(llm, store).compile(checkpointer=checkpointer)
+def compile_w1(llm: JsonLLM, store: Store, checkpointer, tracer: Tracer | None = None):
+    return build_w1(llm, store, tracer).compile(checkpointer=checkpointer)

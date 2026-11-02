@@ -1,9 +1,10 @@
 """Front-desk operations. Caller holds the Core app lock; SQL writes are transactional."""
 import json
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import HTTPException
 from services.common.timefmt import ist
+from services.common.tracing import trace_id_for
 
 
 def rows(conn, sql, args=()):
@@ -12,13 +13,17 @@ def rows(conn, sql, args=()):
         return cur.execute(sql, args).fetchall()
 
 
-def audit(deps, staff, action, resource, rid, patient=None):
+def audit(deps, staff, action, resource, rid, patient=None, trace_id=None):
+    trace_id = trace_id_for(getattr(deps, "tracer", None), trace_id) or uuid4().hex
+    detail = {"trace_id": trace_id}
     if hasattr(deps.store, 'conn'):
-        deps.store.conn.execute("""INSERT INTO audit_event(actor_id,actor_role,action,resource_type,resource_id,patient_id,purpose)
-            VALUES (%s,'front_desk',%s,%s,%s,%s,'frontdesk')""", (staff,action,resource,str(rid),patient))
+        deps.store.conn.execute("""INSERT INTO audit_event(actor_id,actor_role,action,resource_type,resource_id,
+            patient_id,purpose,trace_id,detail) VALUES (%s,'front_desk',%s,%s,%s,%s,'frontdesk',%s,%s)""",
+                                (staff,action,resource,str(rid),patient,trace_id,json.dumps(detail)))
     else:
         deps.store.events.append(dict(actor_id=staff,actor_role='front_desk',action=action,resource_type=resource,
-                                     resource_id=str(rid),patient_id=patient,purpose='frontdesk'))
+                                     resource_id=str(rid),patient_id=patient,purpose='frontdesk',
+                                     trace_id=trace_id,detail=detail))
 
 
 def escalations(deps, status):

@@ -13,6 +13,7 @@ from services.agent.w2.graph import compile_w2
 from services.agent.w2.tools import InMemoryRecordsTools, PostgresRecordsTools
 from services.records.embed import BgeM3Embedder, HashEmbedder
 from services.records.retrieve import InMemoryRetriever, PostgresRetriever
+from services.common.tracing import InMemoryExporter, PostgresExporter, Tracer
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,6 +31,7 @@ class AppDeps:
     embedder: Any = None
     upload_ingest: Any = None
     w1_requests: Any = field(default_factory=lambda: W1Requests())
+    tracer: Tracer | None = None
 
 
 class W1Requests:
@@ -80,16 +82,18 @@ def build_postgres_deps() -> AppDeps:
             kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row}))
         saver = PostgresSaver(pool)
         saver.setup()
+        tracer = Tracer(PostgresExporter(pool))
         # Existing tool interfaces take a connection; keep it for the app lifespan.
         store_pool = stack.enter_context(ConnectionPool(
             conninfo=url, max_size=10, open=True,
             kwargs={"autocommit": True, "prepare_threshold": 0}))
         conn = stack.enter_context(store_pool.connection())
         embedder = BgeM3Embedder()
-        store = PostgresStore(conn)
-        w1 = compile_w1(OpenRouterLLM(workflow="w1"), store, saver)
-        w2 = compile_w2(OpenRouterLLM(workflow="w2"),
-                        PostgresRecordsTools(conn, PostgresRetriever(conn, embedder)))
+        store = PostgresStore(conn, tracer)
+        w1 = compile_w1(OpenRouterLLM(workflow="w1", tracer=tracer), store, saver, tracer)
+        w2 = compile_w2(OpenRouterLLM(workflow="w2", tracer=tracer),
+                        PostgresRecordsTools(conn, PostgresRetriever(conn, embedder), tracer),
+                        tracer=tracer)
 
         def audit(patient_id):
             from psycopg.rows import dict_row
@@ -104,7 +108,7 @@ def build_postgres_deps() -> AppDeps:
                 ingest_one(worker_conn, manifest, embedder)
 
         return AppDeps(w1, w2, audit, close=stack.close, store=store, embedder=embedder,
-                       upload_ingest=upload_ingest, w1_requests=W1Requests(pool))
+                       upload_ingest=upload_ingest, w1_requests=W1Requests(pool), tracer=tracer)
     except BaseException:
         stack.close()
         raise
@@ -113,11 +117,15 @@ def build_postgres_deps() -> AppDeps:
 def build_test_deps() -> AppDeps:
     from langgraph.checkpoint.memory import InMemorySaver
 
+    tracer = Tracer(InMemoryExporter())
     llm = ScriptedLLM({"w1.red_flag_net": {"red_flag": False, "flag": ""},
                        "w1.match": {"specialty": "SP07", "alternative": "SP08", "confidence": 0.82,
                                     "clarifying_question": None}})
     store = InMemoryStore.demo()
-    tools = InMemoryRecordsTools(InMemoryRetriever([], HashEmbedder()))
-    return AppDeps(compile_w1(llm, store, InMemorySaver()), compile_w2(ScriptedLLM({}), tools),
+    store.tracer = tracer
+    tools = InMemoryRecordsTools(InMemoryRetriever([], HashEmbedder()), tracer=tracer)
+    llm.tracer = tracer
+    return AppDeps(compile_w1(llm, store, InMemorySaver(), tracer),
+                   compile_w2(ScriptedLLM({}, tracer=tracer), tools, tracer=tracer),
                    lambda patient: [e for e in tools.events + store.events if e["patient_id"] == patient],
-                   w1_llm=llm, store=store)
+                   w1_llm=llm, store=store, tracer=tracer)

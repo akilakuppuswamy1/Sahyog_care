@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from services.agent.w1.guards import has_identifier, scrub
+from services.common.tracing import Tracer
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -148,6 +149,20 @@ def _reset_circuit_breakers() -> None:
         _CIRCUITS.clear()
 
 
+def breaker_snapshot() -> dict[str, int]:
+    now = time.monotonic()
+    counts = {"open": 0, "half_open": 0, "closed": 0}
+    with _CIRCUITS_LOCK:
+        for circuit in _CIRCUITS.values():
+            if circuit.open_until > now:
+                counts["open"] += 1
+            elif circuit.open_until and circuit.probe_in_flight:
+                counts["half_open"] += 1
+            else:
+                counts["closed"] += 1
+    return counts
+
+
 def _env_seconds(name: str, default: float, *, allow_zero: bool = False) -> float:
     raw = os.environ.get(name)
     try:
@@ -200,6 +215,7 @@ class OpenRouterLLM:
     timeout_s: float = 15.0
     max_retries: int = 2
     usage: Usage = field(default_factory=Usage)
+    tracer: Tracer | None = field(default=None, repr=False)
     _usage_record_ids: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -331,6 +347,38 @@ class OpenRouterLLM:
     def _run_model(self, model: str, user: str, system: str, purpose: str, trace_id: str,
                    deadline: float, served_by: str, provider_policy: dict[str, object],
                    slots: _RequestSlots, cancelled: threading.Event) -> tuple[dict, int, float]:
+        if self.tracer is None:
+            return self._run_model_request(model, user, system, purpose, trace_id, deadline,
+                                           served_by, provider_policy, slots, cancelled)
+        provider_order = provider_policy.get("order")
+        requested_provider = provider_order[0] if isinstance(provider_order, list) and provider_order else None
+        workflow = (self.workflow or "w1").lower()
+        with self.usage._lock:
+            first_record_id = self._usage_record_ids
+        with self.tracer.span("model", purpose, workflow=workflow, trace_id=trace_id,
+                              model=model, provider=requested_provider, served_by=served_by) as span:
+            try:
+                result = self._run_model_request(model, user, system, purpose, trace_id, deadline,
+                                                 served_by, provider_policy, slots, cancelled)
+            except _CallCancelled:
+                span.set_status("ok")
+                raise
+            finally:
+                with self.usage._lock:
+                    attempts = [item for item in self.usage.call_records
+                                if item["trace_id"] == trace_id and item["purpose"] == purpose
+                                and item["served_by"] == served_by and item["model"] == model
+                                and item["id"] > first_record_id]
+                    if attempts:
+                        span.update(provider=next((item["provider"] for item in reversed(attempts)
+                                                   if item["provider"]), None),
+                                    tokens_in=sum(item.get("tokens_in", 0) for item in attempts),
+                                    tokens_out=sum(item.get("tokens_out", 0) for item in attempts))
+            return result
+
+    def _run_model_request(self, model: str, user: str, system: str, purpose: str, trace_id: str,
+                           deadline: float, served_by: str, provider_policy: dict[str, object],
+                           slots: _RequestSlots, cancelled: threading.Event) -> tuple[dict, int, float]:
         last: Exception | None = None
         for attempt in range(self.max_retries + 1):
             remaining = deadline - time.monotonic()
@@ -364,6 +412,7 @@ class OpenRouterLLM:
                     "id": record_id, "workflow": (self.workflow or "w1").lower(), "model": model, "provider": None,
                     "served_by": served_by, "purpose": purpose, "trace_id": trace_id,
                     "success": False, "selected": False, "latency_s": None,
+                    "tokens_in": 0, "tokens_out": 0,
                 })
             try:
                 request_timeout = max(0.001, min(self.timeout_s, deadline - time.monotonic()))
@@ -371,17 +420,20 @@ class OpenRouterLLM:
                 with urllib.request.urlopen(req, timeout=request_timeout) as response:
                     payload = json.loads(response.read())
                     response_provider = response.headers.get("x-openrouter-provider")
-                content = payload["choices"][0]["message"]["content"]
-                result = _extract_json(content)
                 usage = payload.get("usage") or {}
                 provider = payload.get("provider") or payload.get("provider_name") or response_provider
                 completed_at = time.monotonic()
                 with self.usage._lock:
-                    self.usage.prompt_tokens += int(usage.get("prompt_tokens", 0))
-                    self.usage.completion_tokens += int(usage.get("completion_tokens", 0))
+                    tokens_in = int(usage.get("prompt_tokens", 0))
+                    tokens_out = int(usage.get("completion_tokens", 0))
+                    self.usage.prompt_tokens += tokens_in
+                    self.usage.completion_tokens += tokens_out
                     self.usage.by_purpose[purpose] = self.usage.by_purpose.get(purpose, 0) + int(usage.get("total_tokens", 0))
                     record = next(item for item in self.usage.call_records if item["id"] == record_id)
-                    record.update(provider=provider, success=True, latency_s=completed_at - request_started)
+                    record.update(provider=provider, tokens_in=tokens_in, tokens_out=tokens_out,
+                                  success=True, latency_s=completed_at - request_started)
+                content = payload["choices"][0]["message"]["content"]
+                result = _extract_json(content)
                 return result, record_id, completed_at
             except urllib.error.HTTPError as exc:
                 last = exc
@@ -408,8 +460,16 @@ class ScriptedLLM:
     that nothing identifying left the boundary."""
     responses: dict[str, dict | Exception | list]   # a list is consumed one item per call
     sent: list[tuple[str, str]] = field(default_factory=list)
+    tracer: Tracer | None = field(default=None, repr=False)
 
     def complete_json(self, system: str, user: str, *, purpose: str, trace_id: str) -> dict:
+        if self.tracer is None:
+            return self._complete_scripted(user, purpose)
+        workflow = purpose.split(".", 1)[0]
+        with self.tracer.span("model", purpose, workflow=workflow, trace_id=trace_id):
+            return self._complete_scripted(user, purpose)
+
+    def _complete_scripted(self, user: str, purpose: str) -> dict:
         user_out, _ = scrub(user)
         self.sent.append((purpose, user_out))
         r = self.responses.get(purpose)

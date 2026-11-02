@@ -80,6 +80,29 @@ W1 has an 8-second outage deadline and starts one scrubbed hedge after 2 seconds
 
 The circuit breaker measures logical request outcomes, not individual hedge attempts: it opens for 30 seconds only after at least 10 calls in 60 seconds with a failure rate of 50% or more, then allows one half-open probe. A request rescued by its hedge counts as a success, even if its primary timed out. W1 sends a case to the front desk without booking only when no valid model result arrives before the outage deadline, after deterministic red-flag rules run. If W2 is unavailable for a strongly matched report question, it returns only verbatim lines from that patient's matched report chunks with Sources and marks the answer unverified; weak matches remain not found. Degraded API responses carry `X-Degraded: true`, and the request log records `degraded`. The eval report keeps specialty accuracy over all routine cases, adds specialty accuracy when answered and availability (`1 - degraded_rate`), and tracks a degraded-rate target of at most 0.02.
 
+### Pro observability and cost worksheet
+
+Migration 007 stores allowlisted request, graph-node, tool and model spans in Postgres. Spans contain
+no prompts, questions, symptom text or patient IDs; the audit log maps trace IDs to patients. To
+apply pending SQL migrations and seed the local fixtures, run `python tools/migrate.py`.
+
+The ops JSON endpoints (`/ops/summary`, `/ops/traces/{trace_id}`) require the dev-only
+`Bearer demo-ops-<ID>` role; patients and front desk receive 403. Open `/?view=ops`, enter the ops
+ID, and load the sourced tiles. The direct `/ops` page endpoint also requires an ops bearer token.
+Every displayed tile includes its source; unavailable metrics are omitted. `OPS_REVIEW_SLA_MINUTES`
+sets the escalation review SLA (defaults to the existing front-desk SLA setting).
+
+Run `python tools/build_cost_sheet.py` to regenerate [docs/cost-sheet.md](docs/cost-sheet.md) from
+saved evaluation JSON; it does not call a model or run evals. Set `PRICE_IN_PER_MTOK_W1`,
+`PRICE_OUT_PER_MTOK_W1`, `PRICE_IN_PER_MTOK_W2`, `PRICE_OUT_PER_MTOK_W2`, and `PRICE_DATE` to
+populate estimates. Unset prices remain formulas marked “to fill.” The per-consultation example is
+an explicit one-triage-turn plus one-record-answer scenario, not an observed workflow mix.
+
+Trace retention is 30 days. Schedule `SELECT purge_trace_spans();` on the local database (for
+example, daily); the migration creates the purge function but does not install a scheduler. Traces
+must remain in-region; self-hosted Langfuse may replace the exporter, while Langfuse Cloud is
+rejected for residency. See [ADR-005](docs/adr/ADR-005-tracing.md).
+
 Or use Docker:
 
 ```powershell

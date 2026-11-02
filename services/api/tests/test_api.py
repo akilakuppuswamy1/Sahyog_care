@@ -51,6 +51,78 @@ def test_booking_and_ownership(client):
     assert client.post('/w1/missing/resume', headers=token(), json={"value": slot}).status_code == 404
 
 
+def test_ops_role_separation_sourced_tiles_and_trace_tree(client):
+    patient = "PT-TRACE-PATIENT-9"
+    patient_headers = token(patient)
+    assert client.get("/ops", headers=patient_headers).status_code == 403
+    staff_headers = token("staff-OPS-TEST")
+    assert client.get("/ops/summary", headers=staff_headers).status_code == 403
+
+    triage = client.post("/w1/triage", headers=patient_headers, json={
+        "text": "KNOWN_TRIAGE_PRIVATE_TEXT_736 dull lower back pain for three weeks, worse after sitting."
+    })
+    assert triage.status_code == 200, triage.text
+    booking = triage.json()
+    if booking["interrupt"]["type"] == "clarify":
+        booking = client.post(f"/w1/{booking['thread_id']}/resume", headers=token(patient),
+                              json={"value": "Lower back pain for three weeks"}).json()
+    slot = booking["interrupt"]["options"][0]["slot_id"]
+    booking = client.post(f"/w1/{booking['thread_id']}/resume", headers=token(patient),
+                          json={"value": slot}).json()
+    assert booking["booking_id"]
+
+    w2 = client.post("/w2/ask", headers=token(patient), json={
+        "question": "KNOWN_W2_PRIVATE_QUESTION_732 show my report summary"
+    })
+    assert w2.status_code == 200, w2.text
+    w2_trace = w2.json()["trace_id"]
+    assert client.app.state.deps.tracer.exporter.read(trace_id=w2_trace)
+    trace_id = triage.json()["thread_id"]
+    spans = client.app.state.deps.tracer.exporter.read(trace_id=trace_id)
+    assert {span.kind for span in spans} >= {"node", "tool", "model"}
+    serialized = repr(client.app.state.deps.tracer.exporter.spans)
+    assert "KNOWN_TRIAGE_PRIVATE_TEXT_736" not in serialized
+    assert "KNOWN_W2_PRIVATE_QUESTION_732" not in serialized
+    assert patient not in serialized
+
+    ops_headers = token("ops-operator1")
+    assert client.get("/ops", headers=ops_headers).status_code == 200
+    summary = client.get("/ops/summary", headers=ops_headers)
+    assert summary.status_code == 200, summary.text
+    assert all(tile.get("source") for tile in summary.json()["tiles"])
+    tree = client.get(f"/ops/traces/{trace_id}", headers=ops_headers)
+    assert tree.status_code == 200, tree.text
+    assert tree.json()["spans"]
+    def kinds(nodes):
+        return {node["kind"] for node in nodes} | set().union(*(kinds(node["children"]) for node in nodes))
+    assert kinds(tree.json()["spans"]) >= {"node", "tool", "model"}
+
+
+def test_ops_omits_tiles_without_a_source(client, monkeypatch):
+    from services.common.tracing import NullExporter, Tracer
+
+    client.app.state.deps.tracer = Tracer(NullExporter())
+    monkeypatch.setattr("services.api.ops._latest_eval", lambda *args: (1.0, None))
+    response = client.get("/ops/summary", headers=token("ops-operator1"))
+    assert response.status_code == 200
+    tiles = response.json()["tiles"]
+    assert all(tile.get("source") for tile in tiles)
+    assert not {tile["id"] for tile in tiles} & {"triage-p95", "record-p95", "red-flag-recall", "scope-leaks"}
+
+
+def test_exporter_failure_does_not_fail_request(client, caplog):
+    class BrokenExporter:
+        def export(self, span):
+            raise OSError("trace store unavailable")
+
+    client.app.state.deps.tracer.exporter = BrokenExporter()
+    response = client.post("/w1/triage", headers=token(),
+                           json={"text": "crushing chest pain and sweating"})
+    assert response.status_code == 200
+    assert response.json()["red_flags"]
+    assert "Trace span export failed" in caplog.text
+
+
 @pytest.mark.parametrize('path,body', [('/w1/triage', {"text": "pain"}),
                                      ('/w2/ask', {"question": "Hb?"}),
                                      ('/w1/missing/resume', {"value": "answer"})])
