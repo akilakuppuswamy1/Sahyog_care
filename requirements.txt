@@ -7,3 +7,6 @@ presidio-analyzer==2.2.364   # pack p.39; transcription scrub
 presidio-anonymizer       # version to pin after our own check
 kaggle                    # dataset download
 six                       # kaggle imports six but does not declare it (seen on Python 3.14, 2026-11-02)
+langgraph>=1.0,<2                      # pack p.39 pins 1.2.16; we pin after our own install (record the version)
+langgraph-checkpoint-postgres>=3.0,<4  # pack p.39 pins 3.2.0
+python-dotenv>=1.0                     # reads .env

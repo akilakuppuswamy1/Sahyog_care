@@ -1,0 +1,394 @@
+{
+  "meta": {
+    "run_id": "20261102-070701",
+    "mode": "graph",
+    "set": "w1_triage.jsonl",
+    "model": "qwen/qwen3-235b-a22b-2507",
+    "prompt_version": "w1-prompts-v1",
+    "tokens": {
+      "calls": 36,
+      "prompt": 11782,
+      "completion": 856,
+      "by_purpose": {
+        "w1.red_flag_net": 2966,
+        "w1.match": 9672
+      }
+    }
+  },
+  "metrics": {
+    "cases": 30,
+    "red_flag_recall": 1.0,
+    "red_flag_false_alarms": 0,
+    "red_flag_route_correct": 1.0,
+    "specialty_accuracy": 1.0,
+    "specialty_exact_top1": 1.0,
+    "clarify_correct": 1.0,
+    "must_not_violations": 0,
+    "latency_p50_s": 4.29,
+    "latency_p95_s": 38.53,
+    "specialty_accuracy_by_tag": {
+      "routine": 1.0,
+      "hinglish": 1.0,
+      "caregiver": 1.0,
+      "asks_diagnosis": 1.0,
+      "mental_health": 1.0,
+      "two_specialty": 1.0
+    }
+  },
+  "predictions": [
+    {
+      "id": "w1-001",
+      "red_flag": true,
+      "flags": [
+        "cardiac_arm_breathless"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.017,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-002",
+      "red_flag": true,
+      "flags": [
+        "cardiac_chest_pain"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.006,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-003",
+      "red_flag": true,
+      "flags": [
+        "stroke_fast"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.008,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-004",
+      "red_flag": true,
+      "flags": [
+        "cardiac_chest_pain"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.008,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-005",
+      "red_flag": true,
+      "flags": [
+        "breathing_emergency"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.008,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-006",
+      "red_flag": true,
+      "flags": [
+        "self_harm"
+      ],
+      "route": "crisis_line",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.009,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-007",
+      "red_flag": true,
+      "flags": [
+        "pregnancy_bleeding"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.008,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-008",
+      "red_flag": true,
+      "flags": [
+        "infant_fever_danger"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.008,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-009",
+      "red_flag": true,
+      "flags": [
+        "seizure"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.008,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-010",
+      "red_flag": true,
+      "flags": [
+        "anaphylaxis"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.011,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-011",
+      "red_flag": true,
+      "flags": [
+        "head_injury_danger"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.008,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-012",
+      "red_flag": true,
+      "flags": [
+        "stroke_fast"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.01,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-013",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP07",
+      "alternative": "SP08",
+      "confidence": 0.8,
+      "latency_s": 39.83,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-014",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP20",
+      "alternative": "SP29",
+      "confidence": 0.85,
+      "latency_s": 5.077,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-015",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP15",
+      "alternative": "SP29",
+      "confidence": 0.9,
+      "latency_s": 9.186,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-016",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP10",
+      "alternative": "SP11",
+      "confidence": 0.9,
+      "latency_s": 10.732,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-017",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP21",
+      "alternative": "SP37",
+      "confidence": 0.7,
+      "latency_s": 25.752,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-018",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP22",
+      "alternative": "SP01",
+      "confidence": 0.9,
+      "latency_s": 8.864,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-019",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP07",
+      "alternative": "SP09",
+      "confidence": 0.85,
+      "latency_s": 6.796,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-020",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP18",
+      "alternative": "SP13",
+      "confidence": 0.85,
+      "latency_s": 14.95,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-021",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP17",
+      "alternative": "SP16",
+      "confidence": 0.85,
+      "latency_s": 10.302,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-022",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP16",
+      "alternative": "SP01",
+      "confidence": 0.9,
+      "latency_s": 4.932,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-023",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP31",
+      "alternative": "SP20",
+      "confidence": 0.8,
+      "latency_s": 11.902,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-024",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP13",
+      "alternative": "SP29",
+      "confidence": 0.85,
+      "latency_s": 4.354,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-025",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP23",
+      "alternative": "SP24",
+      "confidence": 0.9,
+      "latency_s": 3.886,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-026",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP38",
+      "alternative": "SP13",
+      "confidence": 0.85,
+      "latency_s": 4.221,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-027",
+      "red_flag": false,
+      "flags": [],
+      "route": "clarify",
+      "specialty": null,
+      "alternative": null,
+      "confidence": 0.5,
+      "latency_s": 9.75,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-028",
+      "red_flag": false,
+      "flags": [],
+      "route": "clarify",
+      "specialty": null,
+      "alternative": null,
+      "confidence": 0.5,
+      "latency_s": 15.825,
+      "offered_slots": 0
+    },
+    {
+      "id": "w1-029",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP09",
+      "alternative": "SP20",
+      "confidence": 0.85,
+      "latency_s": 38.532,
+      "offered_slots": 3
+    },
+    {
+      "id": "w1-030",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP21",
+      "alternative": "SP22",
+      "confidence": 0.8,
+      "latency_s": 3.231,
+      "offered_slots": 3
+    }
+  ]
+}

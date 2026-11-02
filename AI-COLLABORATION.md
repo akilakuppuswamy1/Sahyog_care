@@ -70,3 +70,23 @@ notes:
 - The eval cases and red-flag routing were drafted by the agent, not a clinician. added_by says "clinical review pending" on purpose.
 - The agent's first pre-mortem draft claimed 7 Hinglish cases. The eval file has 4. Corrected before commit, by counting the file instead of trusting the summary.
 - W2 eval cases (30) are deferred to before W2 code (day 8), because they need the generated report PDFs and patient records.
+### PR #4 — W1 graph (days 6-7) — 2026-11-02
+agent: Claude (Opus 5.5), chat session (no access to the pod machine; delivered as a zip)
+proposed:
+- Red-flag rules in code with English + Hinglish patterns; the model net may only add flags
+- Egress guard (regex scrub, refuse-to-send) and an output guard against diagnosis or dose wording
+- OpenRouter client behind one interface (vendor swap = one file)
+- W1 nodes as plain functions, wired into a LangGraph graph with two interrupts (clarify, pick)
+- Postgres and in-memory tools; a CLI demo; the eval runner
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- **Overfitting caught:** the first rule set scored 30/30 on the eval set, then missed 3 of 12 held-out paraphrases
+  ("tightness in my chest", "cannot breathe", "face suddenly drooped"). Fixed; the held-out set is now its own test.
+- **Framework trap avoided:** LangGraph injects its own object into node parameters named `store`, so the tools
+  parameter was renamed `tools`. Worth confirming on the installed version.
+- **Not run by the agent:** the LangGraph graph tests and the OpenRouter eval. PyPI was blocked in the agent's
+  sandbox, so only the framework-free logic (rules, guards, nodes, scoring) was tested there. First run on the pod machine is the real test.
+- **Withheld from the reply:** the pack's "a nurse will call within two minutes" (p.14), until D2 Q1 / D3 A09 confirm staffing.
+- OpenRouter model chosen: _fill in model id + date_

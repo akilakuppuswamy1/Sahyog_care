@@ -66,3 +66,12 @@ pytest
 - [ ] D3: at least 8 rows, each with an owner, a validation and a fallback (`docs/assumptions.md`)
 - [ ] Data inventory with exact row counts and licences
 - [ ] Repository in the p.48 structure
+## W1 Find my doctor (step 4)
+```powershell
+copy .env.example .env        # then fill OPENROUTER_API_KEY, OPENROUTER_MODEL, DATABASE_URL (your port)
+pip install -r requirements.txt
+pytest                                    # node tests + graph tests (scripted model, no network, no cost)
+python -m evals.run_w1 --rules-only       # red-flag recall, free
+python -m evals.run_w1                    # full eval through OpenRouter -> evals/runs/w1-*.md
+python -m services.agent.w1.cli           # talk to it; pauses for the slot pick; --resume <thread> after a restart
+```
