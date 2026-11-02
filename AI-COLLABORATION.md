@@ -53,3 +53,20 @@ notes (things the agent got wrong or changed, for the steering review question "
   (1) dedupe kept the first label, so 976 notes landed under the generic "Surgery"; it now keeps the most specific label and records all of them (specialty-less notes fell from 551 to 54);
   (2) ".," is a line separator in mtsamples even with no following space ("clear.,Neck:"); the first regex missed 1,795 notes; now 0.
   Each has a regression test. Lesson: fixtures encode what the agent *thinks* the mess is, so always run on the real file before trusting a transform.
+
+### PR #3 — Day 5: architecture pack v1, ADRs 1-3, W1 eval set, pre-mortem — 2026-11-02
+agent: Claude (Opus 5.5), chat session
+proposed:
+- docs/architecture.md: context view, container view, W1 graph (Mermaid), and 10 corrections to the pack's diagrams
+- ADR-001 hybrid deployment; ADR-002 safety rules in the database; ADR-003 W1 graph shape
+- evals/sets/w1_triage.jsonl: 30 cases (12 red flag, 14 routine, 2 low-confidence, 2 two-specialty; 4 Hinglish; pack cases A and B)
+- evals/tests/test_eval_sets.py: the eval set is itself tested
+- docs/pre-mortem.md with 11 failure modes
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- Day-5 gate held: evals exist, graph code does not.
+- The eval cases and red-flag routing were drafted by the agent, not a clinician. added_by says "clinical review pending" on purpose.
+- The agent's first pre-mortem draft claimed 7 Hinglish cases. The eval file has 4. Corrected before commit, by counting the file instead of trusting the summary.
+- W2 eval cases (30) are deferred to before W2 code (day 8), because they need the generated report PDFs and patient records.
