@@ -12,6 +12,7 @@ from psycopg.rows import dict_row, tuple_row
 
 from services.api import deps
 from services.api.main import create_app
+from services.api.tests.test_api import assert_concurrent_triage
 from services.agent.llm import ScriptedLLM
 from services.agent.tests.test_w1_graph import MATCH_ORTHO, NET_CLEAR
 from services.records.embed import HashEmbedder
@@ -29,14 +30,15 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
             monkeypatch.setenv("SAHYOG_DEMO_AUTH", "1")
             # Exercise the actual pool factory, with no dotenv, model, or embedding network access.
             monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: None)
-            monkeypatch.setattr(deps, "OpenRouterLLM", lambda **kw: ScriptedLLM({
-                "w1.red_flag_net": NET_CLEAR, "w1.match": MATCH_ORTHO}))
+            llm = ScriptedLLM({"w1.red_flag_net": NET_CLEAR, "w1.match": MATCH_ORTHO})
+            monkeypatch.setattr(deps, "OpenRouterLLM", lambda **kw: llm)
             monkeypatch.setattr(deps, "BgeM3Embedder", HashEmbedder)
             with psycopg.connect(url, autocommit=True) as seed:
                 sql = (Path(__file__).resolve().parents[3] / "infra/db/001_schema.sql").read_text()
                 if not seed.execute("SELECT 1 FROM pg_extension WHERE extname='vector'").fetchone():
                     sql = sql.replace("vector(1024)", "real[]")
                 seed.execute(re.sub(r"^\s*(BEGIN|COMMIT);\s*$", "", sql, flags=re.M))
+                seed.execute((Path(__file__).resolve().parents[3] / "infra/db/006_w1_requests.sql").read_text())
                 seed.execute("""
                     INSERT INTO clinic VALUES ('C1','Test Clinic','Pune','hospital','Pune','08:00','20:00',true,true);
                     INSERT INTO specialty (specialty_id,name) VALUES ('SP07','Orthopaedics');
@@ -55,24 +57,15 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                     assert checkpoint_conn.row_factory is dict_row
                 assert pool.max_size == 10
                 assert store_conn.autocommit and store_conn.row_factory is tuple_row
-                response = client.post('/w1/triage', headers=headers, json={
-                    "text": "Knee pain climbing stairs for months", "age": 61})
-                assert response.status_code == 200, response.text
-                out = response.json()
-                assert out['status'] == 'needs_input'
-                assert out['interrupt']['type'] == 'pick_slot'
-                slot = out['interrupt']['options'][0]['slot_id']
-                path = f"/w1/{out['thread_id']}/resume"
-                headers['Idempotency-Key'] = uuid4().hex
-                response = client.post(path, headers=headers, json={"value": slot})
-                assert response.status_code == 200, response.text
-                done = response.json()
-                assert done['status'] == 'done' and done['booking_id']
-                replay = client.post(path, headers=headers, json={"value": slot})
+                thread = assert_concurrent_triage(client, llm, headers)
+                with pool.connection() as c:
+                    assert c.execute("SELECT count(*) AS n FROM w1_request").fetchone()['n'] == 1
+            # A fresh dependency factory / process-local cache recovers the same mapping.
+            with TestClient(create_app(deps.build_postgres_deps)) as restarted:
+                replay = restarted.post('/w1/triage', headers=headers, json={"text": "same request"})
                 assert replay.status_code == 200, replay.text
-                assert replay.json()['booking_id'] == done['booking_id']
-                assert client.post(path, headers={**headers, 'Idempotency-Key': uuid4().hex},
-                                   json={"value": slot}).status_code == 409
+                assert replay.json()['thread_id'] == thread
+                assert replay.json()['booking_id']
             assert pool.closed and store_conn.closed
         finally:
             admin.execute(f"DROP SCHEMA {schema} CASCADE")

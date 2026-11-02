@@ -29,6 +29,40 @@ class AppDeps:
     store: Any = None
     embedder: Any = None
     upload_ingest: Any = None
+    w1_requests: Any = field(default_factory=lambda: W1Requests())
+
+
+class W1Requests:
+    """Atomically reserve identity before starting the graph."""
+    def __init__(self, pool=None):
+        self.pool, self.rows, self.lock = pool, {}, RLock()
+
+    def claim(self, user, key, thread):
+        if self.pool:
+            with self.pool.connection() as c:
+                row = c.execute("INSERT INTO w1_request (user_id,idempotency_key,thread_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING RETURNING thread_id", (user,key,thread)).fetchone()
+                if row: return thread, True
+                return c.execute("SELECT thread_id FROM w1_request WHERE user_id=%s AND idempotency_key=%s", (user,key)).fetchone()['thread_id'], False
+        with self.lock:
+            if (user,key) in self.rows: return self.rows[user,key]['thread_id'], False
+            self.rows[user,key] = dict(thread_id=thread, user_id=user, running=True)
+            return thread, True
+
+    def get(self, user, thread):
+        if self.pool:
+            with self.pool.connection() as c:
+                return c.execute("SELECT * FROM w1_request WHERE user_id=%s AND thread_id=%s", (user,thread)).fetchone()
+        with self.lock:
+            return next((dict(r) for r in self.rows.values() if r['user_id']==user and r['thread_id']==thread), None)
+
+    def finish(self, user, thread):
+        if self.pool:
+            with self.pool.connection() as c:
+                c.execute("UPDATE w1_request SET running=false WHERE user_id=%s AND thread_id=%s", (user,thread))
+        else:
+            with self.lock:
+                for r in self.rows.values():
+                    if r['user_id']==user and r['thread_id']==thread: r['running']=False
 
 
 def build_postgres_deps() -> AppDeps:
@@ -70,7 +104,7 @@ def build_postgres_deps() -> AppDeps:
                 ingest_one(worker_conn, manifest, embedder)
 
         return AppDeps(w1, w2, audit, close=stack.close, store=store, embedder=embedder,
-                       upload_ingest=upload_ingest)
+                       upload_ingest=upload_ingest, w1_requests=W1Requests(pool))
     except BaseException:
         stack.close()
         raise

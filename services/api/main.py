@@ -96,6 +96,8 @@ def create_app(deps_factory=build_postgres_deps):
             status = response.status_code
             if request.url.path.startswith(("/w1/", "/w2/")):
                 response.headers["X-Trace-Id"] = request.state.trace_id
+                if getattr(request.state, "thread_id", None):
+                    response.headers["X-Thread-Id"] = request.state.thread_id
             return response
         finally:
             route = request.scope.get("route")
@@ -113,26 +115,40 @@ def create_app(deps_factory=build_postgres_deps):
     def health():
         return {"status": "ok"}
 
+    def current_w1(deps, user, thread):
+        row = deps.w1_requests.get(user, thread)
+        if not row:
+            raise HTTPException(404, "Thread not found")
+        if row["running"]:
+            return JSONResponse(dict(thread_id=thread, status="running"), status_code=202)
+        with deps.lock:
+            state = deps.w1.get_state({"configurable": {"thread_id": thread}})
+            out = dict(state.values)
+            out["__interrupt__"] = [i for task in state.tasks for i in task.interrupts]
+            return w1_response(thread, out)
+
+    @app.get("/w1/{thread_id}")
+    def w1_status(thread_id: str, request: Request, user: str = Depends(current_user)):
+        request.state.thread_id = thread_id
+        return current_w1(request.app.state.deps, user, thread_id)
+
     @app.post("/w1/triage")
     def triage(body: Triage, request: Request, user: str = Depends(current_user)):
         key = write_key(request)
         limit(request, user, "read")
-        thread = uuid4().hex
-        request.state.trace_id = thread
         deps = request.app.state.deps
+        thread, claimed = deps.w1_requests.claim(user, key, uuid4().hex)
+        request.state.trace_id = thread
+        request.state.thread_id = thread
+        if not claimed:
+            return current_w1(deps, user, thread)
         with deps.lock:
-            if (user, key) in replays:
-                result = replays[user, key]
-                request.state.trace_id = result["thread_id"]
-                return result
             out = deps.w1.invoke(dict(text=body.text, age=body.age, patient_id=user,
                                       trace_id=thread, idempotency_key=key),
                                  {"configurable": {"thread_id": thread}})
-            result = w1_response(thread, out)
-            replays[user, key] = result
-        request.state.thread_id = thread
+            deps.w1_requests.finish(user, thread)
         request.state.model_route = out.get("route")
-        return result
+        return w1_response(thread, out)
 
     @app.post("/w1/{thread_id}/resume")
     def resume(thread_id: str, body: Resume, request: Request, user: str = Depends(current_user)):

@@ -4,8 +4,7 @@ Authenticated W1 triage and resume writes require an `Idempotency-Key` header
 of 8â€“128 characters. Generate a fresh key for each action and reuse that key
 for retries. W1 passes the resume key to the booking store; the database's
 unique `(patient_id, idempotency_key)` constraint deduplicates appointments.
-CLI callers retain the trace/slot fallback. The demo retries transport errors
-and 5xx responses once using the same UUID and request body.
+CLI callers retain the trace/slot fallback. The demo submits triage once, disables its button while working, and polls the owner-only `GET /w1/{thread_id}` every two seconds for up to 30 seconds when running or recovering an error with a known thread ID. Transport failures before any thread ID reaches the browser cannot be polled; the page reports the error without resubmitting.
 
 The single-replica API uses thread-safe token buckets for both authenticated
 patient and connection address. Reads (including triage and clarification)
@@ -13,7 +12,7 @@ default to `RL_READ_PER_MIN=30`; pick-slot resumes use the separate
 `RL_BOOK_PER_HOUR=20` bucket. Invalid slot choices consume booking tokens too.
 429 responses include `Retry-After` and produce a `rate_limited` audit event.
 Clients sharing an address share its bucket. Architect deployments must move
-these limits to the gateway/Redis. Response replay caching is process-local;
+these limits to the gateway/Redis. Triage keys map durably to thread IDs in `w1_request` (migration 006); in-flight replays return 202 running and completed replays read the current checkpoint. Other response replay caching is process-local;
 completed booking resumes also recover from checkpoint state, and appointment
 deduplication remains in the store.
 
@@ -54,3 +53,7 @@ Demo staff tokens `Bearer demo-staff-<STAFF_ID>` have role `front_desk` only wit
 | GET /records/documents | patient | Own documents only; status/error and ISO plus IST upload time |
 
 Core ingestion runs in a FastAPI in-process background task with the startup-loaded embedder. Pro moves it to a queue with a job id. Restarting Core can interrupt a pending upload. Uploads use the fixture ingestion guards, including identity stripping and injection flags.
+
+## Incident 2026-11-02
+
+The browser showed 409 “Thread is not paused” on a slot click. The reported uvicorn JSON logs showed an 11.6 s W1 triage, a repeated POST with the same Idempotency-Key, and a 200 replay with a null thread_id. The demo retry lost the active thread; the original Postgres test never retried. Triage now reserves a persistent (user, key) -> thread_id before graph invocation, returns 202 with that ID during execution, and reads the live checkpoint on replay; owner-only GET supports polling. The demo submits once, blocks double clicks, preserves non-null thread IDs, and polls known threads. Slow ScriptedLLM concurrent-request regressions in test_api.py and test_api_postgres.py cover running replay, pending-interrupt replay, ownership, and successful booking resume.

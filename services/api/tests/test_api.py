@@ -71,3 +71,56 @@ def test_consent_and_audit_scope(client):
 def test_static_page(client):
     response = client.get('/')
     assert response.status_code == 200 and 'Signed in as' in response.text
+
+
+def assert_concurrent_triage(client, llm, headers):
+    """Block a model call on a worker thread while replay and GET run."""
+    import time
+    from threading import Event
+    from concurrent.futures import ThreadPoolExecutor
+
+    entered, release = Event(), Event()
+    original = llm.complete_json
+    def slow(*args, **kwargs):
+        entered.set()
+        assert release.wait(10)
+        time.sleep(0.05)
+        return original(*args, **kwargs)
+    llm.complete_json = slow
+    body = {"text": "Knee pain climbing stairs for months", "age": 61}
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(client.post, '/w1/triage', headers=headers, json=body)
+        try:
+            assert entered.wait(10)
+            replay = workers.submit(client.post, '/w1/triage', headers=headers, json=body).result(timeout=5)
+            assert replay.status_code == 202, replay.text
+            running = replay.json()
+            thread = running['thread_id']
+            assert thread and running['status'] == 'running'
+            assert client.get('/w1/'+thread, headers=headers).json() == running
+            assert client.get('/w1/'+thread, headers=token('PT-OTHER')).status_code == 404
+        finally:
+            release.set()
+        response = first.result(timeout=10)
+    assert response.status_code == 200, response.text
+    out = response.json()
+    assert out['thread_id'] == thread and out['status'] == 'needs_input'
+    replay = client.post('/w1/triage', headers=headers, json=body)
+    assert replay.json() == out
+    assert client.get('/w1/'+thread, headers=headers).json() == out
+    slot = out['interrupt']['options'][0]['slot_id']
+    resume_headers = {**headers, 'Idempotency-Key': uuid4().hex}
+    path = '/w1/'+thread+'/resume'
+    booked = client.post(path, headers=resume_headers, json={'value': slot})
+    assert booked.status_code == 200, booked.text
+    assert booked.json()['booking_id'] and booked.json()['status'] == 'done'
+    assert client.post(path, headers=resume_headers, json={'value': slot}).json() == booked.json()
+    assert client.post('/w1/triage', headers=headers, json=body).json() == booked.json()
+    return thread
+
+
+def test_slow_concurrent_triage_replay_and_booking(client):
+    deps = client.app.state.deps
+    thread = assert_concurrent_triage(client, deps.w1_llm, token())
+    assert len(deps.w1_requests.rows) == 1
+    assert next(iter(deps.w1_requests.rows.values()))['thread_id'] == thread
