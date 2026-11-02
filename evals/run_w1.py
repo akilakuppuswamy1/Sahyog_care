@@ -146,7 +146,7 @@ def main() -> None:
         from services.agent.llm import OpenRouterLLM
         from services.agent.w1.graph import compile_w1
         from services.agent.w1.matcher import PROMPT_VERSION
-        llm = OpenRouterLLM()
+        llm = OpenRouterLLM(workflow="w1")
         graph = compile_w1(llm, EvalStore(), InMemorySaver())
         preds = []
         for c in cases:

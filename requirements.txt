@@ -10,3 +10,6 @@ six                       # kaggle imports six but does not declare it (seen on 
 langgraph>=1.0,<2                      # pack p.39 pins 1.2.16; we pin after our own install (record the version)
 langgraph-checkpoint-postgres>=3.0,<4  # pack p.39 pins 3.2.0
 python-dotenv>=1.0                     # reads .env
+reportlab>=4.0                 # renders the synthetic report PDFs
+pypdf>=5.0                     # reads uploaded PDFs (text layer)
+sentence-transformers>=6.0     # local BAAI/bge-m3 embeddings (checked 2026-11-02: 6.2.0 with torch 2.15.0)

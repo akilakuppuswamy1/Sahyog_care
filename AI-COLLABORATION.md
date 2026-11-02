@@ -90,3 +90,28 @@ notes:
   sandbox, so only the framework-free logic (rules, guards, nodes, scoring) was tested there. First run on the pod machine is the real test.
 - **Withheld from the reply:** the pack's "a nurse will call within two minutes" (p.14), until D2 Q1 / D3 A09 confirm staffing.
 - OpenRouter model chosen: _fill in model id + date_
+### PR #5 — W2 My records (days 8-9) — 2026-11-02
+agent: Claude (Opus 5.5), chat session (no access to the pod machine; delivered as a zip)
+proposed:
+- A report generator: 10 fixed fixture reports (5 patients, one red-team note) plus seeded bulk patients
+- Ingest: pypdf parse, section chunking, the identity block dropped, injection and PHI flags, local bge-m3 embeddings
+  cached by content hash, status queued -> parsing -> indexed | failed, an audit event per write
+- Migration 004: a tsvector column ('simple' config) + GIN index, an HNSW index, chunk flags
+- Hybrid retrieval (pgvector + full-text + abbreviation/Hinglish expansion, RRF), the patient filter in SQL on every query
+- The ask graph: consent and scope guard -> doctor hand-off rules -> retrieve -> grade/widen -> cited answer ->
+  deterministic verifier (citations resolve, numbers grounded, no diagnosis wording) with a verbatim fallback
+- The W2 eval set (30) and evals/run_w2.py; 32 unit tests + a pgvector red-team test
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- **Design choice:** report text comes from seeded templates, not an LLM, so eval values are exact (deck p.20 says LLM).
+- **Design choice:** identifiers live only in the PATIENT DETAILS block, which the chunker drops, so no name, phone or id
+  reaches a chunk, an embedding or a prompt. A unit test asserts it on every fixture chunk.
+- **Red team:** the injected note is flagged at ingest and excluded from retrieval in SQL; the DB test also proves that
+  the same query WITHOUT the patient filter reaches other patients (so the filter is what protects).
+- **A test caught a wrong assumption by the agent:** it assumed excerpt E1 would hold the CBC values, but section
+  chunking puts REMARKS in its own chunk, which ranked first. The test was fixed to cite both, as a real answer would.
+- **Not run by the agent:** pgvector, bge-m3, LangGraph and OpenRouter (no PyPI or Postgres extension in its sandbox).
+  The first real run of the W2 graph and the DB tests is on the pod machine.
+- **To tune on the eval set:** V_MIN = 0.45 (the "relevant context" threshold) and the abbreviation map.

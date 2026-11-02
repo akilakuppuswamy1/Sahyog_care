@@ -75,3 +75,15 @@ python -m evals.run_w1 --rules-only       # red-flag recall, free
 python -m evals.run_w1                    # full eval through OpenRouter -> evals/runs/w1-*.md
 python -m services.agent.w1.cli           # talk to it; pauses for the slot pick; --resume <thread> after a restart
 ```
+## W2 My records (step 5)
+```powershell
+pip install -r requirements.txt
+docker compose -f infra/docker-compose.yml exec -w /repo db psql -U sahyog -d sahyog -v ON_ERROR_STOP=1 -f infra/db/004_w2_records.sql
+python data/synthetic/generate_reports.py --bulk-patients 50     # 10 fixture + ~200 bulk report PDFs
+python -m services.records.ingest --load-patients                # patients + caregiver consents
+python -m services.records.ingest                                # parse, chunk, embed (local bge-m3), index
+pytest                                                           # includes the red-team retrieval test on pgvector
+python -m evals.run_w2                                           # 30 W2 cases through OpenRouter -> evals/runs/w2-*.md
+python -m services.agent.w2.cli --as PT-W2-0001                  # ask Priya's records
+python -m services.agent.w2.cli --as PT-W2-0001 --for PT-W2-0002 # Priya as caregiver for her mother
+```

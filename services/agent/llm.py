@@ -53,14 +53,17 @@ def _extract_json(text: str) -> dict:
 class OpenRouterLLM:
     """OpenRouter's OpenAI-compatible chat API. Reads OPENROUTER_API_KEY and OPENROUTER_MODEL."""
     model: str = field(default_factory=lambda: os.environ.get("OPENROUTER_MODEL", ""))
+    workflow: str = ""      # "w1" | "w2" | "w3": OPENROUTER_MODEL_<WORKFLOW> overrides OPENROUTER_MODEL (routing, p.36)
     api_key: str = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY", ""), repr=False)
-    provider_sort: str = field(default_factory=lambda: os.environ.get("OPENROUTER_PROVIDER_SORT", ""))
-    timeout_s: float = 15.0
+    provider_sort: str = field(default_factory=lambda: os.environ.get("OPENROUTER_PROVIDER_SORT", ""))  # "latency" | "throughput" | "price"
     max_tokens: int = 300
+    timeout_s: float = 15.0
     max_retries: int = 2
     usage: Usage = field(default_factory=Usage)
 
     def __post_init__(self) -> None:
+        if self.workflow:
+            self.model = os.environ.get(f"OPENROUTER_MODEL_{self.workflow.upper()}") or self.model
         if not self.api_key:
             raise ModelError("OPENROUTER_API_KEY is not set (put it in .env, never in code)")
         if not self.model:
@@ -70,7 +73,7 @@ class OpenRouterLLM:
         user_out, _token_map = scrub(user)          # token map stays here, in-region
         if has_identifier(user_out):                 # defence in depth: never send if a pattern survives
             raise ModelError("identifier survived scrubbing; refusing to send")
-        body = {
+        req_body = {
             "model": self.model,
             "temperature": 0,
             "max_tokens": self.max_tokens,
@@ -78,8 +81,8 @@ class OpenRouterLLM:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_out}],
         }
         if self.provider_sort:
-            body["provider"] = {"sort": self.provider_sort}
-        body = json.dumps(body).encode()
+            req_body["provider"] = {"sort": self.provider_sort}
+        body = json.dumps(req_body).encode()
         req = urllib.request.Request(OPENROUTER_URL, data=body, method="POST", headers={
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

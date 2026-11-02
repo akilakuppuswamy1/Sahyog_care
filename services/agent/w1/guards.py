@@ -46,8 +46,11 @@ def has_identifier(text: str) -> bool:
 # Words that turn a routing message into a diagnosis or a prescription.
 DIAGNOSIS = re.compile(
     r"\byou\s+(probably\s+|likely\s+|may\s+|might\s+|could\s+)?(have|has|are\s+suffering|are\s+diabetic)\b|"
-    r"\bdiagnos|\bit\s+(is|sounds\s+like|could\s+be|looks\s+like)\s+(a|an)?\s*\w+(itis|osis|emia|oma)\b|"
-    r"\b(take|start|increase|reduce)\s+\d+\s*(mg|ml|tablets?)\b|\b\d+\s*mg\b",
+    r"\bdiagnos|\b(?:it|this)\s+(is|sounds\s+like|could\s+be|looks\s+like)\s+(a|an)?\s*\w+(itis|osis|emia|oma)\b|"
+    r"\b(take|start|increase|reduce)\s+\d+\s*(mg|ml|tablets?)\b|"
+    # Bare dose. Lab units (mg/dL, mg/L) are excluded: they made every correct W2 lab answer fail
+    # verification (eval run w2-20261102-122732: w2-011, w2-014, w2-015).
+    r"\b\d+(?:\.\d+)?\s*mg\b(?!\s*/\s*d?l\b)",
     re.I,
 )
 

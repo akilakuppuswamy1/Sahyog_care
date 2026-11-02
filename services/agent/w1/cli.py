@@ -41,7 +41,7 @@ def main() -> None:
         saver.setup()                                  # creates the checkpoint tables once
         store = PostgresStore(conn)
         store.ensure_demo_patient(a.patient)
-        llm = OpenRouterLLM()
+        llm = OpenRouterLLM(workflow="w1")
         graph = compile_w1(llm, store, saver)
 
         thread = a.resume or uuid.uuid4().hex
