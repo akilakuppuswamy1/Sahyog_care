@@ -42,6 +42,7 @@ class W3State(TypedDict, total=False):
     medicines: list[dict]
     flags: list[dict]
     edit_history: list[dict]
+    edits: list[dict]
     review_started_at: datetime
     action: str
     review_error: str
@@ -148,6 +149,11 @@ def _contains(text: str, phrase: str) -> bool:
     return bool(key) and f" {key} " in f" {_key(text)} "
 
 
+def _class_in_quote(text: str) -> str | None:
+    match = MEDICINE_CLASSES.search(text)
+    return match.group(0) if match else None
+
+
 def _dose_is_current(quote: str, dose: str) -> bool:
     if not _contains(quote, dose):
         return False
@@ -159,7 +165,8 @@ def _dose_is_current(quote: str, dose: str) -> bool:
     later_doses = [mention for mention in mentions if mention.start() > last_correction]
     if not later_doses:
         return True
-    return _key(dose) == _key(later_doses[-1].group(0))
+    dose_amount = DOSE_PATTERN.search(dose)
+    return bool(dose_amount and _key(dose_amount.group(0)) == _key(later_doses[-1].group(0)))
 
 
 def grounding_check(s: W3State, stock: StockSource) -> W3State:
@@ -168,7 +175,8 @@ def grounding_check(s: W3State, stock: StockSource) -> W3State:
     flags = [flag for flag in s.get("flags", []) if flag.get("kind") not in {"grounding", "stock"}]
     for item in MEDICINE_CLASSES.finditer(transcript):
         class_name = item.group(0)
-        if not any(_key(existing.get("name", "")) == _key(class_name) for existing in medicines):
+        if not any(_contains(existing.get("name", ""), class_name)
+                   or _contains(existing.get("quote", ""), class_name) for existing in medicines):
             medicines.append({"name": class_name, "molecule": "", "dose": "", "frequency": "",
                               "quote": class_name})
 
@@ -184,8 +192,12 @@ def grounding_check(s: W3State, stock: StockSource) -> W3State:
             or bool(canonical and molecule and _key(canonical) == _key(molecule))
         )
         if not molecule and name_supported and not MEDICINE_CLASSES.fullmatch(name):
-            molecule, molecule_supported = name, True
+            molecule, molecule_supported = canonical or name, True
+        if not name_supported and molecule_supported:
+            medicine["name"] = molecule
+            name = molecule
         if not name_supported and not molecule_supported:
+            medicine["name"] = _class_in_quote(quote) or PLACEHOLDER
             medicine["molecule"] = PLACEHOLDER
             flags.append({"kind": "grounding", "field": f"medicines.{index}.molecule",
                           "message": "medicine is not supported by a transcript quote"})
@@ -196,6 +208,7 @@ def grounding_check(s: W3State, stock: StockSource) -> W3State:
         else:
             medicine["molecule"] = molecule
         if not quote_supported:
+            medicine["name"] = PLACEHOLDER
             medicine["molecule"] = PLACEHOLDER
             flags.append({"kind": "grounding", "field": f"medicines.{index}.quote",
                           "message": "medicine quote is not present in the transcript"})
@@ -237,10 +250,12 @@ def stock_check(s: W3State, stock: StockSource) -> W3State:
 
 
 def _draft_payload(s: W3State) -> dict:
+    soap_json = s.get("soap_json") or {**{field: "" for field in SOAP_FIELDS}, "medicines": []}
     return {
         "draft_id": s["draft_id"], "encounter_id": s["encounter_id"], "doctor_id": s["doctor_id"],
-        "version": s["version"], "soap_json": s["soap_json"], "medicines": s.get("medicines", []),
-        "initial_soap_json": s.get("initial_soap_json", s["soap_json"]),
+        "version": s["version"], "soap_json": soap_json,
+        "medicines": s.get("medicines", soap_json.get("medicines", [])),
+        "initial_soap_json": s.get("initial_soap_json", soap_json),
         "flags": s.get("flags", []), "edit_history": s.get("edit_history", []),
     }
 
@@ -328,5 +343,9 @@ def park_expired_reviews(store: W3Store) -> list[str]:
 
 def sign_draft(s: W3State, store: W3Store) -> W3State:
     signed = store.sign_draft(_draft_payload(s), s["doctor_id"], s["trace_id"])
-    notification = store.notify_signed(signed, s["patient_id"], s["trace_id"])
-    return {"note": signed, "notification": notification, "route": "signed", "action": "signed"}
+    return {"note": signed, "route": "signed", "action": "signed"}
+
+
+def notify_signed(s: W3State, store: W3Store) -> W3State:
+    signed = s["note"]
+    return {"notification": store.notify_signed(signed, s["patient_id"], s["trace_id"])}

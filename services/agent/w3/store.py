@@ -38,9 +38,19 @@ def _edit_distance(before: object, after: object) -> int:
 
 def edit_distances(before: dict, after: dict) -> dict[str, int]:
     distances = {}
-    for section in ("S", "O", "A", "P", "medicines"):
+    for section in ("S", "O", "A", "P"):
         if before.get(section) != after.get(section):
             distances[section] = _edit_distance(before.get(section), after.get(section))
+    before_medicines = [
+        {key: item.get(key, "") for key in ("name", "molecule", "dose", "frequency", "quote")}
+        for item in before.get("medicines", [])
+    ]
+    after_medicines = [
+        {key: item.get(key, "") for key in ("name", "molecule", "dose", "frequency", "quote")}
+        for item in after.get("medicines", [])
+    ]
+    if before_medicines != after_medicines:
+        distances["medicines"] = _edit_distance(before_medicines, after_medicines)
     return distances
 
 
@@ -65,12 +75,15 @@ class PostgresW3Store:
         return {"encounter_id": row[0], "patient_id": row[1], "doctor_id": row[2], "clinic_id": clinic_id}
 
     def next_version(self, encounter_id: str) -> int:
+        active = self.conn.execute(
+            "SELECT 1 FROM note_draft WHERE encounter_id = %s AND status = 'draft' LIMIT 1",
+            (encounter_id,),
+        ).fetchone()
+        if active:
+            raise ValueError("this encounter already has an active doctor review")
         row = self.conn.execute(
-            """SELECT GREATEST(
-                       COALESCE((SELECT max(version) FROM clinical_note WHERE encounter_id = %s), 0),
-                       COALESCE((SELECT max(version) FROM note_draft WHERE encounter_id = %s), 0)
-                   ) + 1""",
-            (encounter_id, encounter_id),
+            "SELECT COALESCE(max(version), 0) + 1 FROM clinical_note WHERE encounter_id = %s",
+            (encounter_id,),
         ).fetchone()
         return int(row[0])
 
@@ -133,6 +146,8 @@ class PostgresW3Store:
                 (draft["encounter_id"],),
             ).fetchone()
             version = int(prior[1]) + 1 if prior else 1
+            if draft["version"] != version:
+                raise ValueError("draft version is stale; start a fresh doctor review")
             supersedes = prior[0] if prior else None
             distances = edit_distances(draft["initial_soap_json"], draft["soap_json"])
             note = self.conn.execute(
@@ -222,14 +237,21 @@ class InMemoryW3Store:
 
     def next_version(self, encounter_id: str) -> int:
         versions = [note["version"] for note in self.notes if note["encounter_id"] == encounter_id]
-        versions += [draft["version"] for draft in self.drafts.values()
-                     if draft["encounter_id"] == encounter_id and draft["status"] != "rejected"]
+        if any(draft["encounter_id"] == encounter_id and draft["status"] == "draft"
+               for draft in self.drafts.values()):
+            raise ValueError("this encounter already has an active doctor review")
         return max(versions, default=0) + 1
 
     def save_draft(self, draft: dict, status: str = "draft") -> datetime:
         previous = self.drafts.get(draft["draft_id"], {})
         if previous.get("status") in ("signed", "rejected"):
             raise ValueError("draft is already signed or rejected")
+        if status == "draft" and any(
+            draft_id != draft["draft_id"] and other["encounter_id"] == draft["encounter_id"]
+            and other["version"] == draft["version"] and other["status"] == "draft"
+            for draft_id, other in self.drafts.items()
+        ):
+            raise ValueError("this encounter already has an active doctor review")
         started = previous.get("review_started_at") or (
             datetime.now(timezone.utc) if status == "draft" else None
         )
@@ -254,9 +276,12 @@ class InMemoryW3Store:
             raise PermissionError("only the treating doctor may sign this note")
         prior = max((note for note in self.notes if note["encounter_id"] == saved["encounter_id"]),
                     key=lambda note: note["version"], default=None)
+        version = prior["version"] + 1 if prior else 1
+        if saved["version"] != version:
+            raise ValueError("draft version is stale; start a fresh doctor review")
         signed = {
             "note_id": str(uuid.uuid4()), "encounter_id": saved["encounter_id"], "doctor_id": doctor_id,
-            "version": prior["version"] + 1 if prior else 1, "soap_json": saved["soap_json"],
+            "version": version, "soap_json": saved["soap_json"],
             "signed_by": doctor_id, "content_hash": hashlib.sha256(
                 json.dumps(saved["soap_json"], ensure_ascii=False, sort_keys=True).encode()
             ).hexdigest(),

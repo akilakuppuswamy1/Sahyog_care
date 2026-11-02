@@ -1,15 +1,15 @@
 ﻿# Architecture pack — version 2
 
-Status: 2026-11-02. W1/W2, Core API and Postgres tracing are built; W3 is a Pro design. India residency is a deployment target, not a claim about this local demo. This supersedes v1's prospective diagrams.
+Status: 2026-11-02. W1/W2, Core API, Postgres tracing, and the W3 scribe graph/schema/timeout command are built; the W3 doctor console/API and scheduled runner are not wired into the demo. India residency is a deployment target, not a claim about this local demo. This supersedes v1's prospective diagrams.
 
 ## Views and decisions
 
 - [Context — C4 level 1](diagrams/context.md)
 - [Containers — C4 level 2, built/planned](diagrams/container.md)
-- [Entity model — migrations 001–007](diagrams/entity-model.md)
+- [Entity model — migrations 001–009](diagrams/entity-model.md)
 - [W1 compiled graph](diagrams/w1-graph.md)
 - [W2 compiled graph](diagrams/w2-graph.md)
-- [W3 scribe DESIGN — Pro, not built](diagrams/w3-graph.md)
+- [W3 scribe graph — Pro](diagrams/w3-graph.md)
 - [W1 booking sequence](diagrams/seq-w1-booking.md)
 - [W2 cited answer sequence](diagrams/seq-w2-answer.md)
 - [ADR-001 — hybrid deployment](adr/ADR-001-hybrid-deployment.md)
@@ -38,10 +38,10 @@ Pack references below are the task's supplied comparisons and the repo's existin
 | LLM-generated doctor directory (p.20) | Seeded code produces the directory for reproducibility, explicit distributions and auditability. Reports also use seeded templates. | `data/synthetic/generate_doctors.py`, `generate_reports.py`, `report_cohort.py` |
 | Remote/ambiguous embedding boundary | bge-m3 runs locally; no report text is sent to an embedding vendor. This supports the residency boundary; it does not establish hosting residency. | `services/records/embed.py::BgeM3Embedder`, `services/api/deps.py::build_postgres_deps` |
 | DocChunk lacks patient identity (p.18) | Every chunk has patient_id and a composite document FK; all three retrieval SQL queries filter patient_id. A model cannot choose the retrieval subject. | `infra/db/001_schema.sql`; `services/records/retrieve.py::PostgresRetriever.search` |
-| Draft and signed notes share persistence (p.18) | Built clinical_note table requires signature fields, computes a content hash and rejects update/delete; W3 draft checkpoints/review queue remain planned Pro. Schema is not a built scribe workflow. | `infra/db/001_schema.sql`; [W3 design](diagrams/w3-graph.md) |
-| Stock status checked before doctor edits (p.27–28) | Proposed W3 loops edits through grounding and stock checks before signing; final medicine determines status. | Design only; no W3 implementation claimed |
+| Draft and signed notes share persistence (p.18) | W3 stores editable `note_draft` and `note_edit` rows; only approval inserts a signed, hashed, immutable clinical note. The database signer trigger binds the note to the encounter doctor. | `infra/db/001_schema.sql`, `infra/db/008_w3_drafts.sql`; `services/agent/w3/store.py` |
+| Stock status checked before doctor edits (p.27–28) | CSV and API stock adapters share an interface. Edits loop through grounding and stock; alternatives are suggestion-only and never substituted. The API adapter is an explicit unconfigured stub. | `services/agent/w3/stock.py`, `services/agent/w3/graph.py` |
 | Prospective API gateway, Redis and Presidio drawn as deployed | Core is one FastAPI process with a lock, demo bearer auth, in-process patient/IP buckets, regex egress and local upload files. OIDC/OTP and Presidio are Pro targets; distributed limits are Architect. | `services/api/{auth,ratelimit,deps,main}.py`, `services/agent/llm.py`; [D6](../infra/deployment-adr.md) |
-| SMS relay treated as delivery | notify writes an audit event named sms_outbox with a template ID. There is no persistent outbox table or carrier worker. Delivery remains planned Pro. | `services/agent/w1/nodes.py::notify`, migrations 001–006 |
+| SMS relay treated as delivery | W1 and W3 write audit events for notification intent. There is no persistent outbox table or carrier worker. Delivery remains planned Pro. | `services/agent/w1/nodes.py::notify`, `services/agent/w3/store.py::notify_signed` |
 | Observability assumed to require Langfuse Cloud | Migration 007 stores allowlisted spans in Postgres in-region; a `SpanExporter` supports a later self-hosted Langfuse replacement. Cloud was rejected for residency. Traces exclude prompts, questions, symptom text and patient IDs; the audit log maps trace IDs to patients. | [ADR-005](adr/ADR-005-tracing.md), `services/common/tracing.py`, `infra/db/007_tracing.sql` |
 | 14 application tables everywhere | Migrations 005–007 add frontdesk_handling, frontdesk_replay, w1_request and trace_span: 18 persistent tables, plus runtime-managed checkpoint tables. | [Entity model](diagrams/entity-model.md) |
 

@@ -1,10 +1,11 @@
-# Entity model — migrations 001–007
+# Entity model — migrations 001–009
 
-Derived from the checked-in SQL, including all 18 persistent application tables and columns.
+Derived from the checked-in SQL, including all 20 persistent application tables and columns.
 Migration 002 uses temporary staging tables `_clinic` and `_spec` for loading; these are not persistent entities.
 Migration 003 replaces a trigger function; 004 adds document/chunk columns and indexes; 005–006 add three tables;
-007 adds the PHI-free `trace_span` table and audit trace-context trigger.
-LangGraph creates its own checkpoint tables through `PostgresSaver.setup()`; those are outside migrations 001–007.
+007 adds the PHI-free `trace_span` table and audit trace-context trigger; 008 adds W3 drafts/edit history and 009
+allows rejected/parked drafts to be retried without consuming a signed-note version.
+LangGraph creates its own checkpoint tables through `PostgresSaver.setup()`; those are outside migrations 001–009.
 
 ```mermaid
 erDiagram
@@ -93,6 +94,27 @@ erDiagram
         timestamptz signed_at
         text content_hash
         uuid supersedes FK
+    }
+    note_draft {
+        uuid draft_id PK
+        text encounter_id FK
+        text doctor_id FK
+        int version
+        jsonb soap_json
+        jsonb flags
+        text status
+        timestamptz created_at
+        timestamptz review_started_at
+        uuid signed_note_id FK
+    }
+    note_edit {
+        uuid edit_id PK
+        uuid draft_id FK
+        text field
+        jsonb before
+        jsonb after
+        text edited_by FK
+        timestamptz edited_at
     }
     medicine_stock {
         text medicine_id PK
@@ -201,6 +223,11 @@ erDiagram
     encounter ||--o{ clinical_note : "encounter_id"
     doctor ||--o{ clinical_note : "doctor_id"
     clinical_note |o--o{ clinical_note : "supersedes nullable"
+    encounter ||--o{ note_draft : "encounter_id"
+    doctor ||--o{ note_draft : "doctor_id"
+    note_draft |o--o| clinical_note : "signed_note_id nullable"
+    note_draft ||--o{ note_edit : "draft_id"
+    doctor ||--o{ note_edit : "edited_by"
     clinic ||--o{ medicine_stock : "clinic_id"
     clinical_note ||--o{ prescription : "note_id"
     patient ||--o{ document : "patient_id"
@@ -212,11 +239,11 @@ erDiagram
 
 - CHECKs restrict clinic city/kind/opening times; doctor gender, languages and practice years; consent scopes, expiry and distinct grantee; slot capacity/booked range; appointment status/booked_by; encounter time order; note version/SOAP keys/signer/supersedes; stock nonnegative price/quantity and source; document type/ingest/PHI status; chunk page; audit actor role/action; handling status.
 - `book_slot` returns an existing appointment for `(patient_id,idempotency_key)`; otherwise it atomically increments available capacity and inserts. Appointment has that unique pair and a partial unique index on live `(patient_id,slot_id)`. `release_appointment` releases the seat transactionally.
-- Only signed notes can be inserted. The hash trigger computes SHA-256 of SOAP JSON; update/delete are refused. `(encounter_id,version)` is unique. `signed_by = doctor_id` checks the note row, not authenticated identity or equality with the encounter doctor.
+- Only signed notes can be inserted; unsigned notes remain `note_draft` rows. The hash trigger computes SHA-256 of SOAP JSON; update/delete are refused. `(encounter_id,version)` is unique. Migration 008's insert trigger binds `doctor_id` and `signed_by` to the encounter's treating doctor.
 - `doc_chunk(doc_id,patient_id)` references `document(doc_id,patient_id)` with cascade delete; the parent pair is UNIQUE. This is one composite FK, not an independent chunk-to-patient FK.
 - Audit update/delete are refused; `who_saw_record` projects patient-associated read events. Application code must still write the events. Privileged owners can bypass triggers; TRUNCATE is not covered.
 - Migration 005 separates handling and replay state from immutable audit rows; 006 uses `(user_id,idempotency_key)` PK and unique `thread_id`. Neither table declares an FK from user/staff identifiers to patient.
 - Migration 007 stores spans without prompt, question, symptom or patient text/IDs; audit `trace_id` is the correlation path. `purge_trace_spans()` removes rows older than 30 days and must be scheduled by operations.
-- No FK exists for `prescription.medicine_id` (stock key is composite), audit patient/actor IDs, consent grantee, note `signed_by`, or handling staff. These are deliberately not drawn as relationships.
+- No FK exists for `prescription.medicine_id` (stock key is composite), audit patient/actor IDs, consent grantee, or handling staff. These are deliberately not drawn as relationships.
 
-Sources: [001](../../infra/db/001_schema.sql), [002](../../infra/db/002_load_generated.sql), [003](../../infra/db/003_fix_forbid_change_errcode.sql), [004](../../infra/db/004_w2_records.sql), [005](../../infra/db/005_frontdesk.sql), [006](../../infra/db/006_w1_requests.sql), [007](../../infra/db/007_tracing.sql).
+Sources: [001](../../infra/db/001_schema.sql), [002](../../infra/db/002_load_generated.sql), [003](../../infra/db/003_fix_forbid_change_errcode.sql), [004](../../infra/db/004_w2_records.sql), [005](../../infra/db/005_frontdesk.sql), [006](../../infra/db/006_w1_requests.sql), [007](../../infra/db/007_tracing.sql), [008](../../infra/db/008_w3_drafts.sql), [009](../../infra/db/009_w3_draft_version_retry.sql).

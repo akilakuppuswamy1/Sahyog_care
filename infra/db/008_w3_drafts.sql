@@ -11,11 +11,12 @@ CREATE TABLE note_draft (
     created_at        timestamptz NOT NULL DEFAULT now(),
     review_started_at timestamptz,
     signed_note_id    uuid REFERENCES clinical_note,
-    UNIQUE (encounter_id, version),
     CHECK ((status = 'signed') = (signed_note_id IS NOT NULL))
 );
 CREATE INDEX note_draft_review_queue_idx ON note_draft (status, review_started_at)
     WHERE status IN ('draft','parked');
+CREATE UNIQUE INDEX note_draft_active_version_idx ON note_draft (encounter_id, version)
+    WHERE status = 'draft';
 
 CREATE TABLE note_edit (
     edit_id    uuid PRIMARY KEY DEFAULT gen_random_uuid(),

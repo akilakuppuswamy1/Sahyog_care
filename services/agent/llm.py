@@ -221,6 +221,8 @@ class OpenRouterLLM:
     def __post_init__(self) -> None:
         if self.workflow:
             self.model = os.environ.get(f"OPENROUTER_MODEL_{self.workflow.upper()}") or self.model
+            if not self.model and self.workflow.lower() == "w3":
+                self.model = "qwen/qwen3-235b-a22b-2507"
         if not self.api_key:
             raise ModelError("OPENROUTER_API_KEY is not set (put it in .env, never in code)")
         if not self.model:
@@ -231,7 +233,9 @@ class OpenRouterLLM:
         if has_identifier(user_out):                 # defence in depth: never send if a pattern survives
             raise ModelError("identifier survived scrubbing; refusing to send")
         workflow = (self.workflow or "w1").lower()
-        deadline_s = _workflow_seconds("LLM_DEADLINE_S", workflow, 8.0 if workflow == "w1" else 6.0)
+        deadline_s = _workflow_seconds(
+            "LLM_DEADLINE_S", workflow, {"w1": 8.0, "w2": 6.0, "w3": 20.0}.get(workflow, 6.0)
+        )
         default_hedge = 2.0 if workflow == "w1" else 3.0
         hedge_variable = f"LLM_HEDGE_AFTER_S_{workflow.upper()}"
         if hedge_variable in os.environ:

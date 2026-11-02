@@ -42,7 +42,7 @@ class CsvStockAdapter:
         self.path = Path(path)
         with self.path.open(encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream)
-            required = {"medicine_id", "clinic_id", "name", "composition", "price_inr", "qty", "as_of"}
+            required = {"medicine_id", "clinic_id", "name", "composition", "price_inr", "qty", "as_of", "source"}
             missing = required - set(reader.fieldnames or ())
             if missing:
                 raise ValueError(f"{self.path} is missing stock columns: {sorted(missing)}")
@@ -56,27 +56,44 @@ class CsvStockAdapter:
                     raise ValueError(f"{self.path}:{line} has a negative quantity")
                 if not row["as_of"]:
                     raise ValueError(f"{self.path}:{line} has no as_of date")
+                if row["source"] != "csv":
+                    raise ValueError(f"{self.path}:{line} has an invalid stock source")
                 rows.append(StockRow(
                     medicine_id=row["medicine_id"], clinic_id=row["clinic_id"], name=row["name"],
                     composition=row["composition"], price_inr=row["price_inr"], qty=qty,
                     as_of=row["as_of"],
                 ))
         self.rows = tuple(rows)
+        by_name: dict[str, list[StockRow]] = {}
+        by_clinic: dict[str, list[StockRow]] = {}
+        by_composition: dict[tuple[str, str], list[StockRow]] = {}
+        for row in self.rows:
+            by_name.setdefault(_key(row.name), []).append(row)
+            by_clinic.setdefault(row.clinic_id, []).append(row)
+            by_composition.setdefault((row.clinic_id, _key(row.composition)), []).append(row)
+        self._by_name = by_name
+        self._by_clinic = by_clinic
+        self._by_composition = by_composition
 
     def molecule_for(self, name: str) -> str | None:
         key = _key(name)
-        return next((row.composition for row in self.rows if _key(row.name) == key), None)
+        rows = self._by_name.get(key, [])
+        compositions = {_key(row.composition) for row in rows}
+        return next(iter(compositions)) if len(compositions) == 1 else None
 
     def check(self, clinic_id: str, medicine: dict) -> dict:
-        clinic_rows = [row for row in self.rows if row.clinic_id == clinic_id]
+        clinic_rows = self._by_clinic.get(clinic_id, [])
         name, molecule = str(medicine.get("name", "")), str(medicine.get("molecule", ""))
-        name_key, molecule_key = _key(name), _key(molecule)
-        exact = [row for row in clinic_rows if name_key and _key(row.name) == name_key]
+        name_key = _key(name)
+        exact = [row for row in self._by_name.get(name_key, []) if row.clinic_id == clinic_id]
         composition = self.molecule_for(name) or molecule
         composition_key = _key(composition)
-        same_molecule = [row for row in clinic_rows if composition_key and _key(row.composition) == composition_key]
-        requested = exact[0] if exact else (same_molecule[0] if same_molecule else None)
-        available = requested is not None and requested.qty > 0
+        same_molecule = self._by_composition.get((clinic_id, composition_key), [])
+        requested = exact[0] if exact else None
+        generic_name = not name_key or name_key == _key(molecule)
+        available = requested.qty > 0 if requested else (
+            generic_name and any(row.qty > 0 for row in same_molecule)
+        )
         alternatives = []
         if not available:
             alternatives = [

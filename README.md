@@ -14,7 +14,7 @@ to the page it came from.
 - **Measured, not asserted** — golden evaluation sets written before the code; results in `evals/report.md`, generated
   from saved runs.
 
-**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet. Not built: W3 scribe (designed in [docs/diagrams/w3-graph.md](docs/diagrams/w3-graph.md)), Presidio egress replay, async ingest queue, 80-case evals with a calibrated judge, Architect tier.
+**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet; W3 scribe graph, grounding, stock adapters, signed-note persistence, and a schedulable timeout command. W3 doctor console/API and timeout-job scheduling are not wired. Other gaps: Presidio egress replay, async ingest queue, 80-case evals with a calibrated judge, Architect tier.
 
 ## Known gaps
 

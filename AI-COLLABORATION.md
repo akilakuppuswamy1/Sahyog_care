@@ -226,6 +226,7 @@ proposed:
 - Render sourced ops tiles as human-readable values with status colors and latency targets; show traces as nested duration trees, and configure demo auth through `.env.example` and the README.
 - Codex (GPT-6): replace only the README opening with the user-supplied overview and design principles, adding the requested current-eval link text and W1 specialty-accuracy regression disclosure; preserve all content from Layout onward.
 - Submission freeze updates: replace the tier summary, add known gaps and the Day-8 change-request status, and add the p.47 checklist and synthetic demo run block in `docs/submission.md`.
+- Add synthetic-data and scheduling READMEs: document seeded-code generation without LLM prompts, link the generator scripts and PR #2 decision, and point to the booking store, database `book_slot()` and ADR-002.
 accepted: provider-distinct hedge, rate-based breaker, 8 s outage-only deadline, in-region tracing, /ops screen, cost sheet.
 rejected: the 3.5 s deadline + count-based breaker, Langfuse Cloud, auth-gated HTML page shells.
 why: runs 172538/172623 regressed availability (6 of 16 bookings to front desk); runs 180728/180812/180851 restored it; residency; the browser 401.
@@ -257,3 +258,22 @@ notes:
 - Submission-freeze update: replace the Core-only tier summary, add Known gaps and the Day-8 change-request status, and add the p.47 checklist and local synthetic demo instructions in `docs/submission.md`.
 - What the agent got wrong: the README's old tier sentence omitted the Pro platform items; the submission request caught the mismatch. The API tests already checked response charset and UTF-8 decoding, but not the actual My records separator, so `test_static_page` now asserts the `·` join and rejects `�`.
 - Submission-freeze verification: full `.venv\Scripts\pytest.exe` with the required local `DATABASE_URL` and `PYTHON_DOTENV_DISABLED=1`: **274 passed, 13 warnings in 49.85s** (zero failures). `git diff --check` and static UTF-8/meta checks passed. No `.env` access, eval execution, model request, or Docker build.
+- What the agent got wrong: no documentation errors were identified; generator links were checked against the source files, and the booking description was checked against `store.py`, `001_schema.sql` and ADR-002.
+- Documentation verification: README paths and cross-links were checked against repository files; `git diff --check` passed. Documentation-only change; tests were not run. Human accepted/rejected/why fields remain untouched.
+
+### PR #13 — Pro: W3 scribe with doctor interrupt and edit history — 2026-11-02
+agent: Copilot SDK assistant (model not recorded)
+proposed:
+- Generate 300 seeded dictations and 40 fixed synthetic fixtures, plus per-clinic nightly stock CSVs.
+- Add CSV/API stock adapters and a W3 graph that scrubs, runs deterministic red flags before the model, grounds medicine details, and rechecks edits before review.
+- Persist editable drafts and edit rows separately from immutable signed notes; bind signing to the treating doctor, hash notes in Postgres, link later versions, and audit signing/notification intent.
+- Configure the W3 model default and 20-second deadline without changing W1/W2 workflow defaults; add a schedulable timeout command and document the graph/schema.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- What the agent got wrong: the first W3 edit-resume test showed LangGraph had discarded the doctor edit list because `edits` was absent from `W3State`; `test_later_edit_creates_version_two_with_supersedes` caught it. The field was added to the typed state and the test passed.
+- What the agent got wrong: the first bulk generator scanned all 246,068 formulary rows for every transcript and exceeded three minutes; the running command exposed the cost. A first-token index reduced the repeated work and the generator then produced all 300 records and 40 fixtures. The initial stock generator run also caught a missing repository import path (`ModuleNotFoundError: data`), fixed before successful CSV generation.
+- Verification: focused W3, fixture, and PostgreSQL migration tests passed (26 passed). Final `.venv\Scripts\pytest.exe` with `DATABASE_URL=postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog` and `PYTHON_DOTENV_DISABLED=1`: **289 passed, 13 warnings in 60.65s**. `git diff --check` and timeout worker import passed.
+- Applied `008_w3_drafts.sql` and `009_w3_draft_version_retry.sql` to the local database with `tools/migrate.py`. Generated output contains 300 dictations, 40 fixed fixtures, 25 represented specialties, and 28 per-clinic stock CSVs; generated output remains git-ignored.
+- No `.env` access, OpenRouter request, eval run, or Docker build. Pylance diagnostics timed out; focused and full pytest runs validated Python behavior. Human review fields remain unfilled.
