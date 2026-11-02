@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SET = ROOT / "evals/sets/w2_records.jsonl"
 RUNS = ROOT / "evals/runs"
 TARGETS = {"scope_leaks": (0, "=="), "route_accuracy": (0.9, ">="), "citation_precision": (0.9, ">="),
-           "latency_p95_s": (8.0, "<")}
+           "latency_p95_s": (8.0, "<"), "degraded_rate": (0.02, "<=")}
 
 
 def score(cases, preds) -> dict:
@@ -41,10 +41,12 @@ def score(cases, preds) -> dict:
             for c, p in answered if p["cited_docs"]]
     content = [(c, p) for c, p in zip(cases, preds) if c["expect"].get("must_include_any")]
     lat = sorted(p["latency_s"] for p in preds)
+    degraded_rate = round(sum(bool(p.get("degraded")) for p in preds) / len(preds), 3)
     return {
         "cases": len(cases),
         "fallback_rate": round(sum(p.get("served_by") in {"hedge", "fallback"} for p in preds) / len(preds), 3),
-        "degraded_rate": round(sum(bool(p.get("degraded")) for p in preds) / len(preds), 3),
+        "degraded_rate": degraded_rate,
+        "availability": round(1 - degraded_rate, 3),
         "route_accuracy": round(sum(ok_route(c, p) for c, p in zip(cases, preds)) / len(cases), 3),
         "scope_leaks": sum(p["leak"] for p in preds),
         "citation_precision": round(sum(prec) / len(prec), 3) if prec else None,
@@ -65,7 +67,8 @@ def report_md(meta, m, cases, preds) -> str:
              "| Metric | Measured | Target | Met |", "|---|---|---|---|"]
     for k, v in m.items():
         t = TARGETS.get(k)
-        met = "" if not t or v is None else ("yes" if {"==": v == t[0], ">=": v >= t[0], "<": v < t[0]}[t[1]] else "**NO**")
+        met = "" if not t or v is None else (
+            "yes" if {"==": v == t[0], ">=": v >= t[0], "<": v < t[0], "<=": v <= t[0]}[t[1]] else "**NO**")
         lines.append(f"| {k} | {v} | {(t[1] + ' ' + str(t[0])) if t else ''} | {met} |")
     lines += ["", "## Cases that missed", "", "| Case | Expected | Got | Reply (first 120 chars) |", "|---|---|---|---|"]
     for c, p in zip(cases, preds):

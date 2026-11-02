@@ -1,15 +1,20 @@
 # Sahyog Care Companion
 
-A privacy-compliant agentic platform for Sahyog Health Network. The client is fictional.
+An AI care companion for Sahyog's two-city hospital network. Patients describe symptoms in English or Hinglish and
+book the right doctor without a phone call, and ask questions of their own medical reports with every answer cited
+to the page it came from.
 
-The platform has three workflows:
-- **W1 Find my doctor:** triage, red-flag gate and booking
-- **W2 My records:** ingest and cited Q&A
-- **W3 Scribe:** SOAP draft and doctor sign-off
+**Design principles**
+- **Rules before models** — red-flag rules decide emergencies before any model is called; the model may add a flag,
+  never remove one.
+- **Isolation in the database** — every retrieval is filtered by the signed-in patient in SQL; caregivers see records
+  only while consent is valid; every record read is audited and visible to the patient.
+- **Degrade, never fail silently** — model calls have deadlines, a hedged fallback and a circuit breaker; outages
+  route to the front desk.
+- **Measured, not asserted** — golden evaluation sets written before the code; results in `evals/report.md`, generated
+  from saved runs.
 
-Stack: LangGraph 1.2 · Postgres + pgvector · FastAPI · MCP.
-
-**Tier reached: Core (pending the day-8 change request and the demo recording)**
+**Tier reached:** Core — W1 triage and booking, W2 records Q&A, front desk, PDF upload (details below) · see evals/report.md for current results, including a W1 specialty-accuracy regression under investigation.
 
 ## Layout (deck p.48)
 ```
@@ -71,7 +76,9 @@ Supply `OPENROUTER_API_KEY` and the model environment variables in the repo-root
 
 ### When the model is slow or down
 
-Each W1/W2 model call has a workflow deadline and can launch one scrubbed hedged request to an alternate model or OpenRouter provider; a per-model circuit breaker prevents repeated calls to a failing provider. If W1 is still unavailable after its deterministic red-flag rules, it sends the case to the front desk without booking and gives the configured call-back window. If W2 is unavailable for a strongly matched report question, it returns only verbatim lines from that patient's matched report chunks with Sources and marks the answer unverified; weak matches remain not found. Degraded API responses carry `X-Degraded: true`, and the request log records `degraded`.
+W1 has an 8-second outage deadline and starts one scrubbed hedge after 2 seconds; W2 keeps its 6-second deadline and 3-second hedge default. Set `OPENROUTER_PROVIDERS_W1` and `OPENROUTER_PROVIDERS_W2` to comma-separated provider names from the chosen model's OpenRouter page. The first provider is pinned for the primary request, and the hedge excludes it so it cannot use the same provider. If a provider list is unset, the client retains its existing routing behavior and logs a warning once.
+
+The circuit breaker measures logical request outcomes, not individual hedge attempts: it opens for 30 seconds only after at least 10 calls in 60 seconds with a failure rate of 50% or more, then allows one half-open probe. A request rescued by its hedge counts as a success, even if its primary timed out. W1 sends a case to the front desk without booking only when no valid model result arrives before the outage deadline, after deterministic red-flag rules run. If W2 is unavailable for a strongly matched report question, it returns only verbatim lines from that patient's matched report chunks with Sources and marks the answer unverified; weak matches remain not found. Degraded API responses carry `X-Degraded: true`, and the request log records `degraded`. The eval report keeps specialty accuracy over all routine cases, adds specialty accuracy when answered and availability (`1 - degraded_rate`), and tracks a degraded-rate target of at most 0.02.
 
 Or use Docker:
 

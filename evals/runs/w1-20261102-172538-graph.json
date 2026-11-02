@@ -1,0 +1,997 @@
+{
+  "meta": {
+    "run_id": "20261102-172538",
+    "mode": "graph",
+    "set": "w1_triage.jsonl",
+    "model": "qwen/qwen3-235b-a22b-2507",
+    "prompt_version": "w1-prompts-v1",
+    "tokens": {
+      "calls": 44,
+      "prompt": 13998,
+      "completion": 1002,
+      "by_purpose": {
+        "w1.red_flag_net": 2633,
+        "w1.match": 12367
+      }
+    },
+    "model_calls": [
+      {
+        "id": 1,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-013-d405a4",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 2,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-013-d405a4",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 3,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-013-d405a4",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 4,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-014-f20a26",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 5,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-014-f20a26",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 6,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-014-f20a26",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 7,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-015-fc9ed4",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 8,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-015-fc9ed4",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 9,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-015-fc9ed4",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 10,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-016-c1f122",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 11,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-016-c1f122",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 12,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-016-c1f122",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 13,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-017-ac70bb",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 14,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-017-ac70bb",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 15,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": null,
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-017-ac70bb",
+        "success": false,
+        "selected": false
+      },
+      {
+        "id": 16,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-018-061a84",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 17,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-018-061a84",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 18,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": null,
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-018-061a84",
+        "success": false,
+        "selected": false
+      },
+      {
+        "id": 19,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-019-e64380",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 20,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-019-e64380",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 21,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-020-90f139",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 22,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-020-90f139",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 23,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-020-90f139",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 24,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-021-5dca95",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 25,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-021-5dca95",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 26,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": null,
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-021-5dca95",
+        "success": false,
+        "selected": false
+      },
+      {
+        "id": 27,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-022-628111",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 28,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-022-628111",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 29,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-023-3bff32",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 30,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-023-3bff32",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 31,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": null,
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-023-3bff32",
+        "success": false,
+        "selected": false
+      },
+      {
+        "id": 32,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-024-cfa965",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 33,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-024-cfa965",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 34,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-024-cfa965",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 35,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-025-9d8bd5",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 36,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-025-9d8bd5",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 37,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-026-a79272",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 38,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-026-a79272",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 39,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-026-a79272",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 40,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-027-ec5719",
+        "success": true,
+        "selected": false
+      },
+      {
+        "id": 41,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-027-ec5719",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 42,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": null,
+        "served_by": "hedge",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-027-ec5719",
+        "success": false,
+        "selected": false
+      },
+      {
+        "id": 43,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.red_flag_net",
+        "trace_id": "eval-w1-028-78dbb9",
+        "success": true,
+        "selected": true
+      },
+      {
+        "id": 44,
+        "workflow": "w1",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "DeepInfra",
+        "served_by": "primary",
+        "purpose": "w1.match",
+        "trace_id": "eval-w1-028-78dbb9",
+        "success": true,
+        "selected": true
+      }
+    ]
+  },
+  "metrics": {
+    "cases": 34,
+    "fallback_rate": 0.0,
+    "degraded_rate": 0.176,
+    "red_flag_recall": 1.0,
+    "red_flag_false_alarms": 0,
+    "red_flag_route_correct": 1.0,
+    "specialty_accuracy": 0.6875,
+    "specialty_exact_top1": 0.6875,
+    "redirect_records_correct": 1.0,
+    "clarify_correct": 0.5,
+    "must_not_violations": 0,
+    "latency_p50_s": 0.01,
+    "latency_p95_s": 3.52,
+    "specialty_accuracy_by_tag": {
+      "routine": 0.69,
+      "hinglish": 0.5,
+      "caregiver": 1.0,
+      "asks_diagnosis": 1.0,
+      "mental_health": 1.0,
+      "two_specialty": 0.0
+    }
+  },
+  "predictions": [
+    {
+      "id": "w1-001",
+      "red_flag": true,
+      "flags": [
+        "cardiac_arm_breathless"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.009,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-002",
+      "red_flag": true,
+      "flags": [
+        "cardiac_chest_pain"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-003",
+      "red_flag": true,
+      "flags": [
+        "stroke_fast"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-004",
+      "red_flag": true,
+      "flags": [
+        "cardiac_chest_pain"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-005",
+      "red_flag": true,
+      "flags": [
+        "breathing_emergency"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.005,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-006",
+      "red_flag": true,
+      "flags": [
+        "self_harm"
+      ],
+      "route": "crisis_line",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.005,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-007",
+      "red_flag": true,
+      "flags": [
+        "pregnancy_bleeding"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-008",
+      "red_flag": true,
+      "flags": [
+        "infant_fever_danger"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.005,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-009",
+      "red_flag": true,
+      "flags": [
+        "seizure"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-010",
+      "red_flag": true,
+      "flags": [
+        "anaphylaxis"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-011",
+      "red_flag": true,
+      "flags": [
+        "head_injury_danger"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-012",
+      "red_flag": true,
+      "flags": [
+        "stroke_fast"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-013",
+      "red_flag": false,
+      "flags": [],
+      "route": "front_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 3.522,
+      "offered_slots": 0,
+      "degraded": true,
+      "served_by": "unavailable"
+    },
+    {
+      "id": "w1-014",
+      "red_flag": false,
+      "flags": [],
+      "route": "front_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 3.519,
+      "offered_slots": 0,
+      "degraded": true,
+      "served_by": "unavailable"
+    },
+    {
+      "id": "w1-015",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP15",
+      "alternative": "SP29",
+      "confidence": 0.9,
+      "latency_s": 2.888,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-016",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP10",
+      "alternative": "SP29",
+      "confidence": 0.8,
+      "latency_s": 2.92,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-017",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP21",
+      "alternative": "SP01",
+      "confidence": 0.8,
+      "latency_s": 2.142,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-018",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP22",
+      "alternative": "SP29",
+      "confidence": 0.85,
+      "latency_s": 1.949,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-019",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP07",
+      "alternative": "SP09",
+      "confidence": 0.8,
+      "latency_s": 1.553,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-020",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP18",
+      "alternative": "SP29",
+      "confidence": 0.85,
+      "latency_s": 2.609,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-021",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP17",
+      "alternative": "SP16",
+      "confidence": 0.8,
+      "latency_s": 3.042,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-022",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP16",
+      "alternative": "SP01",
+      "confidence": 0.95,
+      "latency_s": 1.507,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-023",
+      "red_flag": false,
+      "flags": [],
+      "route": "front_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 3.522,
+      "offered_slots": 0,
+      "degraded": true,
+      "served_by": "unavailable"
+    },
+    {
+      "id": "w1-024",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP13",
+      "alternative": "SP29",
+      "confidence": 0.8,
+      "latency_s": 2.136,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-025",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP23",
+      "alternative": "SP24",
+      "confidence": 0.9,
+      "latency_s": 1.797,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-026",
+      "red_flag": false,
+      "flags": [],
+      "route": "book",
+      "specialty": "SP38",
+      "alternative": "SP01",
+      "confidence": 0.8,
+      "latency_s": 2.776,
+      "offered_slots": 3,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-027",
+      "red_flag": false,
+      "flags": [],
+      "route": "front_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 3.518,
+      "offered_slots": 0,
+      "degraded": true,
+      "served_by": "unavailable"
+    },
+    {
+      "id": "w1-028",
+      "red_flag": false,
+      "flags": [],
+      "route": "clarify",
+      "specialty": null,
+      "alternative": null,
+      "confidence": 0.4,
+      "latency_s": 2.864,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "primary"
+    },
+    {
+      "id": "w1-029",
+      "red_flag": false,
+      "flags": [],
+      "route": "front_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.005,
+      "offered_slots": 0,
+      "degraded": true,
+      "served_by": "none"
+    },
+    {
+      "id": "w1-030",
+      "red_flag": false,
+      "flags": [],
+      "route": "front_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.006,
+      "offered_slots": 0,
+      "degraded": true,
+      "served_by": "none"
+    },
+    {
+      "id": "W1-BROWSER-1",
+      "red_flag": false,
+      "flags": [],
+      "route": "redirect_records",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "W1-BROWSER-2",
+      "red_flag": false,
+      "flags": [],
+      "route": "redirect_records",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "W1-BROWSER-3",
+      "red_flag": false,
+      "flags": [],
+      "route": "redirect_records",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.004,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    },
+    {
+      "id": "W1-BROWSER-4",
+      "red_flag": true,
+      "flags": [
+        "cardiac_chest_pain"
+      ],
+      "route": "emergency_desk",
+      "specialty": null,
+      "alternative": null,
+      "confidence": null,
+      "latency_s": 0.006,
+      "offered_slots": 0,
+      "degraded": false,
+      "served_by": "none"
+    }
+  ]
+}

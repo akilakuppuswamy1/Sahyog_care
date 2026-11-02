@@ -9,6 +9,7 @@ token usage recorded for the cost meter, and a trace id.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
@@ -55,7 +56,7 @@ class Usage:
 
 @dataclass
 class _Circuit:
-    failures: deque = field(default_factory=deque)
+    outcomes: deque = field(default_factory=deque)
     open_until: float = 0.0
     probe_in_flight: bool = False
 
@@ -69,6 +70,9 @@ class _RequestSlots:
 
 _CIRCUITS: dict[tuple[str, str], _Circuit] = {}
 _CIRCUITS_LOCK = threading.Lock()
+_PROVIDER_WARNED: set[str] = set()
+_PROVIDER_WARNED_LOCK = threading.Lock()
+_LOGGER = logging.getLogger(__name__)
 _CALLS = ThreadPoolExecutor(max_workers=32, thread_name_prefix="llm")
 _REQUEST_SLOTS: dict[str, _RequestSlots] = {}
 _REQUEST_SLOTS_LOCK = threading.Lock()
@@ -106,8 +110,8 @@ def _circuit_enter(key: tuple[str, str]) -> bool:
     now = time.monotonic()
     with _CIRCUITS_LOCK:
         circuit = _CIRCUITS.setdefault(key, _Circuit())
-        while circuit.failures and now - circuit.failures[0] > 60:
-            circuit.failures.popleft()
+        while circuit.outcomes and now - circuit.outcomes[0][0] > 60:
+            circuit.outcomes.popleft()
         if circuit.open_until:
             if now < circuit.open_until:
                 raise ModelUnavailable(f"circuit open for {key[0]} model {key[1]}")
@@ -118,14 +122,6 @@ def _circuit_enter(key: tuple[str, str]) -> bool:
         return False
 
 
-def _circuit_preflight(key: tuple[str, str]) -> None:
-    now = time.monotonic()
-    with _CIRCUITS_LOCK:
-        circuit = _CIRCUITS.get(key)
-        if circuit and circuit.open_until and (now < circuit.open_until or circuit.probe_in_flight):
-            raise ModelUnavailable(f"circuit open for {key[0]} model {key[1]}")
-
-
 def _circuit_finish(key: tuple[str, str], probe: bool, success: bool) -> None:
     now = time.monotonic()
     with _CIRCUITS_LOCK:
@@ -133,17 +129,17 @@ def _circuit_finish(key: tuple[str, str], probe: bool, success: bool) -> None:
         if probe:
             circuit.probe_in_flight = False
             if success:
-                circuit.failures.clear()
+                circuit.outcomes.clear()
                 circuit.open_until = 0.0
             else:
+                circuit.outcomes.append((now, False))
                 circuit.open_until = now + 30
             return
-        if success:
-            return
-        circuit.failures.append(now)
-        while circuit.failures and now - circuit.failures[0] > 60:
-            circuit.failures.popleft()
-        if len(circuit.failures) >= 5:
+        circuit.outcomes.append((now, success))
+        while circuit.outcomes and now - circuit.outcomes[0][0] > 60:
+            circuit.outcomes.popleft()
+        failures = sum(not outcome for _, outcome in circuit.outcomes)
+        if len(circuit.outcomes) >= 10 and failures / len(circuit.outcomes) >= 0.5:
             circuit.open_until = now + 30
 
 
@@ -165,6 +161,21 @@ def _env_seconds(name: str, default: float, *, allow_zero: bool = False) -> floa
 
 def _workflow_seconds(name: str, workflow: str, default: float, *, allow_zero: bool = False) -> float:
     return _env_seconds(f"{name}_{workflow.upper()}", default, allow_zero=allow_zero)
+
+
+def _primary_provider(workflow: str) -> str | None:
+    variable = f"OPENROUTER_PROVIDERS_{workflow.upper()}"
+    raw = os.environ.get(variable)
+    if raw is None:
+        with _PROVIDER_WARNED_LOCK:
+            if workflow not in _PROVIDER_WARNED:
+                _PROVIDER_WARNED.add(workflow)
+                _LOGGER.warning("%s is unset; hedge requests may use the same provider as the primary", variable)
+        return None
+    providers = [provider.strip() for provider in raw.split(",")]
+    if not providers or any(not provider for provider in providers):
+        raise ModelError(f"{variable} must be a comma-separated list of provider names")
+    return providers[0]
 
 
 def _extract_json(text: str) -> dict:
@@ -204,27 +215,44 @@ class OpenRouterLLM:
         if has_identifier(user_out):                 # defence in depth: never send if a pattern survives
             raise ModelError("identifier survived scrubbing; refusing to send")
         workflow = (self.workflow or "w1").lower()
-        deadline_s = _workflow_seconds("LLM_DEADLINE_S", workflow, 3.5 if workflow == "w1" else 6.0)
-        hedge_after_s = _env_seconds("LLM_HEDGE_AFTER_S", 1.8 if workflow == "w1" else 3.0, allow_zero=True)
-        _circuit_preflight((workflow, self.model))
-        deadline = time.monotonic() + deadline_s
-        fallback_model = os.environ.get(f"OPENROUTER_FALLBACK_MODEL_{workflow.upper()}") or self.model
+        deadline_s = _workflow_seconds("LLM_DEADLINE_S", workflow, 8.0 if workflow == "w1" else 6.0)
+        default_hedge = 2.0 if workflow == "w1" else 3.0
+        hedge_variable = f"LLM_HEDGE_AFTER_S_{workflow.upper()}"
+        if hedge_variable in os.environ:
+            hedge_after_s = _env_seconds(hedge_variable, default_hedge, allow_zero=True)
+        else:
+            hedge_after_s = _env_seconds("LLM_HEDGE_AFTER_S", default_hedge, allow_zero=True)
+        primary_provider = _primary_provider(workflow)
+        key = (workflow, self.model)
         slots = _retain_request_slots(trace_id)
+        fallback_model = os.environ.get(f"OPENROUTER_FALLBACK_MODEL_{workflow.upper()}") or self.model
         try:
-            return self._complete_with_hedge(system, user_out, purpose, trace_id, deadline_s, deadline,
-                                             hedge_after_s, fallback_model, slots)
+            probe = _circuit_enter(key)
+            try:
+                deadline = time.monotonic() + deadline_s
+                result = self._complete_with_hedge(
+                    system, user_out, purpose, trace_id, deadline_s, deadline, hedge_after_s,
+                    fallback_model, primary_provider, slots)
+            except Exception:
+                _circuit_finish(key, probe, False)
+                raise
+            _circuit_finish(key, probe, True)
+            return result
         finally:
             _release_request_slots(slots)
 
     def _complete_with_hedge(self, system: str, user: str, purpose: str, trace_id: str, deadline_s: float,
                              deadline: float, hedge_after_s: float, fallback_model: str,
-                             slots: _RequestSlots) -> dict:
-        fallback_provider_fallbacks = True
-        primary_provider_fallbacks = False
+                             primary_provider: str | None, slots: _RequestSlots) -> dict:
+        primary_provider_policy: dict[str, object] = {"allow_fallbacks": False}
+        hedge_provider_policy: dict[str, object] = {"allow_fallbacks": True}
+        if primary_provider is not None:
+            primary_provider_policy["order"] = [primary_provider]
+            hedge_provider_policy["ignore"] = [primary_provider]
         primary_cancel = threading.Event()
         futures: dict[Future, str] = {
             self._submit_model(slots, self.model, user, system, purpose, trace_id, deadline,
-                               "primary", primary_provider_fallbacks, primary_cancel): "primary"
+                               "primary", primary_provider_policy, primary_cancel): "primary"
         }
         cancelled: dict[Future, threading.Event] = {future: primary_cancel for future in futures}
         hedge_at = min(deadline, time.monotonic() + hedge_after_s)
@@ -232,48 +260,59 @@ class OpenRouterLLM:
         fallback_started = False
 
         while True:
-            now = time.monotonic()
-            if now >= deadline:
-                for future in futures:
-                    cancelled[future].set()
-                    future.cancel()
-                raise ModelUnavailable(f"model call exceeded {deadline_s:g}s deadline")
-            until_hedge = max(0.0, hedge_at - now) if not fallback_started else None
-            done, _ = wait(tuple(futures), timeout=until_hedge if until_hedge is not None else deadline - now,
-                           return_when=FIRST_COMPLETED)
+            done, _ = wait(tuple(futures), timeout=0, return_when=FIRST_COMPLETED)
+            successful = []
+            primary_failed = False
             for future in done:
                 try:
-                    result, record_id = future.result()
-                except (ModelError, TimeoutError, socket.timeout) as exc:
+                    result, record_id, completed_at = future.result()
+                except (ModelError, TimeoutError, socket.timeout, _CallCancelled) as exc:
                     last_error = exc
+                    primary_failed = primary_failed or futures[future] == "primary"
                     continue
+                if completed_at > deadline:
+                    last_error = ModelUnavailable("model response arrived after deadline")
+                    continue
+                successful.append((completed_at, future, result, record_id))
+
+            if successful:
+                _, selected_future, result, record_id = min(successful, key=lambda item: item[0])
                 with self.usage._lock:
                     for record in self.usage.call_records:
                         if record["id"] == record_id:
                             record["selected"] = True
                             break
                 for other in futures:
-                    if other is not future:
+                    if other is not selected_future:
                         cancelled[other].set()
                         other.cancel()
                 return result
 
-            primary_done = any(role == "primary" and future.done() for future, role in futures.items())
-            if not fallback_started and (primary_done or time.monotonic() >= hedge_at):
-                role = "fallback" if primary_done else "hedge"
+            now = time.monotonic()
+            if now >= deadline:
+                for future in futures:
+                    cancelled[future].set()
+                    future.cancel()
+                raise ModelUnavailable(f"model call exceeded {deadline_s:g}s deadline")
+            if not fallback_started and (primary_failed or now >= hedge_at):
+                role = "fallback" if primary_failed else "hedge"
                 hedge_cancel = threading.Event()
                 future = self._submit_model(slots, fallback_model, user, system, purpose, trace_id,
-                                            deadline, role, fallback_provider_fallbacks, hedge_cancel)
+                                            deadline, role, hedge_provider_policy, hedge_cancel)
                 futures[future] = role
                 cancelled[future] = hedge_cancel
                 fallback_started = True
                 continue
-            if fallback_started and all(future.done() for future in futures) and all(future in done for future in futures):
+            if fallback_started and all(future.done() and future in done for future in futures):
                 detail = f": {last_error}" if last_error else ""
                 raise ModelUnavailable(f"all model calls failed{detail}")
 
+            until_hedge = max(0.0, hedge_at - now) if not fallback_started else None
+            wait(tuple(futures), timeout=until_hedge if until_hedge is not None else deadline - now,
+                 return_when=FIRST_COMPLETED)
+
     def _submit_model(self, slots: _RequestSlots, model: str, user: str, system: str, purpose: str,
-                      trace_id: str, deadline: float, served_by: str, allow_fallbacks: bool,
+                      trace_id: str, deadline: float, served_by: str, provider_policy: dict[str, object],
                       cancelled: threading.Event) -> Future:
         with _REQUEST_SLOTS_LOCK:
             slots.references += 1
@@ -281,7 +320,7 @@ class OpenRouterLLM:
         def run():
             try:
                 return self._run_model(model, user, system, purpose, trace_id, deadline,
-                                       served_by, allow_fallbacks, slots, cancelled)
+                                       served_by, provider_policy, slots, cancelled)
             finally:
                 _release_request_slots(slots)
 
@@ -290,9 +329,8 @@ class OpenRouterLLM:
         return future
 
     def _run_model(self, model: str, user: str, system: str, purpose: str, trace_id: str,
-                   deadline: float, served_by: str, allow_fallbacks: bool,
-                   slots: _RequestSlots, cancelled: threading.Event) -> tuple[dict, int]:
-        key = ((self.workflow or "w1").lower(), model)
+                   deadline: float, served_by: str, provider_policy: dict[str, object],
+                   slots: _RequestSlots, cancelled: threading.Event) -> tuple[dict, int, float]:
         last: Exception | None = None
         for attempt in range(self.max_retries + 1):
             remaining = deadline - time.monotonic()
@@ -302,7 +340,7 @@ class OpenRouterLLM:
                 "model": model, "temperature": 0, "max_tokens": self.max_tokens,
                 "response_format": {"type": "json_object"},
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                "provider": {"allow_fallbacks": allow_fallbacks},
+                "provider": dict(provider_policy),
             }
             if self.provider_sort:
                 req_body["provider"]["sort"] = self.provider_sort
@@ -318,22 +356,18 @@ class OpenRouterLLM:
             if remaining <= 0:
                 slots.semaphore.release()
                 raise ModelUnavailable("model call deadline expired")
-            try:
-                probe = _circuit_enter(key)
-            except ModelUnavailable:
-                slots.semaphore.release()
-                raise
             with self.usage._lock:
                 self._usage_record_ids += 1
                 record_id = self._usage_record_ids
                 self.usage.calls += 1
                 self.usage.call_records.append({
-                    "id": record_id, "workflow": key[0], "model": model, "provider": None,
+                    "id": record_id, "workflow": (self.workflow or "w1").lower(), "model": model, "provider": None,
                     "served_by": served_by, "purpose": purpose, "trace_id": trace_id,
-                    "success": False, "selected": False,
+                    "success": False, "selected": False, "latency_s": None,
                 })
             try:
                 request_timeout = max(0.001, min(self.timeout_s, deadline - time.monotonic()))
+                request_started = time.monotonic()
                 with urllib.request.urlopen(req, timeout=request_timeout) as response:
                     payload = json.loads(response.read())
                     response_provider = response.headers.get("x-openrouter-provider")
@@ -341,14 +375,14 @@ class OpenRouterLLM:
                 result = _extract_json(content)
                 usage = payload.get("usage") or {}
                 provider = payload.get("provider") or payload.get("provider_name") or response_provider
+                completed_at = time.monotonic()
                 with self.usage._lock:
                     self.usage.prompt_tokens += int(usage.get("prompt_tokens", 0))
                     self.usage.completion_tokens += int(usage.get("completion_tokens", 0))
                     self.usage.by_purpose[purpose] = self.usage.by_purpose.get(purpose, 0) + int(usage.get("total_tokens", 0))
                     record = next(item for item in self.usage.call_records if item["id"] == record_id)
-                    record.update(provider=provider, success=True)
-                _circuit_finish(key, probe, True)
-                return result, record_id
+                    record.update(provider=provider, success=True, latency_s=completed_at - request_started)
+                return result, record_id, completed_at
             except urllib.error.HTTPError as exc:
                 last = exc
                 try:
@@ -356,14 +390,12 @@ class OpenRouterLLM:
                 except OSError:
                     detail = b""
                 if exc.code not in (429, 500, 502, 503, 504):
-                    _circuit_finish(key, probe, False)
                     raise ModelUnavailable(f"OpenRouter HTTP {exc.code}: {detail!r}") from exc
             except (urllib.error.URLError, TimeoutError, socket.timeout, OSError, json.JSONDecodeError,
                     KeyError, TypeError, ModelError) as exc:
                 last = exc
             finally:
                 slots.semaphore.release()
-            _circuit_finish(key, probe, False)
             remaining = deadline - time.monotonic()
             if attempt < self.max_retries and remaining > 0:
                 time.sleep(min(4.0, 0.5 * 2 ** attempt, remaining))

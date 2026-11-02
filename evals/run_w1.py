@@ -93,11 +93,16 @@ def score(cases, preds, rules_only: bool) -> dict:
          "red_flag_recall": sum(p["red_flag"] for _, p in pos) / len(pos),
          "red_flag_false_alarms": sum(p["red_flag"] for _, p in neg),
          "red_flag_route_correct": sum(p["route"] == c["expect"]["route"] for c, p in pos) / len(pos)}
+    m["availability"] = round(1 - m["degraded_rate"], 3)
     if rules_only:
         return m
     routine = [(c, p) for c, p in neg if c["expect"]["route"] == "book"]
+    answered_routine = [(c, p) for c, p in routine if p["route"] == "book" and p["specialty"] is not None]
     clar = [(c, p) for c, p in neg if c["expect"]["route"] == "clarify"]
     m["specialty_accuracy"] = sum(p["specialty"] in c["expect"]["accept_specialties"] for c, p in routine) / len(routine)
+    m["specialty_accuracy_when_answered"] = (
+        sum(p["specialty"] in c["expect"]["accept_specialties"] for c, p in answered_routine) /
+        len(answered_routine) if answered_routine else None)
     m["specialty_exact_top1"] = sum(p["specialty"] == c["expect"]["specialty"] for c, p in routine) / len(routine)
     redirects = [(c, p) for c, p in neg if c["expect"]["route"] == "redirect_records"]
     m["redirect_records_correct"] = sum(p["route"] == "redirect_records" for _, p in redirects) / len(redirects) if redirects else None
@@ -118,7 +123,7 @@ def score(cases, preds, rules_only: bool) -> dict:
 
 
 TARGETS = {"red_flag_recall": (1.0, ">="), "specialty_accuracy": (0.85, ">="), "must_not_violations": (0, "=="),
-           "latency_p95_s": (4.0, "<")}
+           "latency_p95_s": (4.0, "<"), "degraded_rate": (0.02, "<=")}
 
 
 def report_md(meta, m, cases, preds) -> str:
@@ -132,7 +137,8 @@ def report_md(meta, m, cases, preds) -> str:
         tgt = TARGETS.get(k)
         met = ""
         if tgt and v is not None:
-            met = "yes" if {">=": v >= tgt[0], "==": v == tgt[0], "<": v < tgt[0]}[tgt[1]] else "**NO**"
+            met = "yes" if {">=": v >= tgt[0], "==": v == tgt[0], "<": v < tgt[0],
+                            "<=": v <= tgt[0]}[tgt[1]] else "**NO**"
         lines.append(f"| {k} | {v} | {(tgt[1] + ' ' + str(tgt[0])) if tgt else ''} | {met} |")
     if m.get("specialty_accuracy_by_tag"):
         lines += ["", "Specialty accuracy by tag: " + ", ".join(f"{k} {v}" for k, v in m["specialty_accuracy_by_tag"].items())]

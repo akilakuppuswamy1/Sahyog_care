@@ -25,6 +25,33 @@ def test_w1_metrics_include_serving_and_degradation_rates():
     metrics = score_w1(cases, preds, rules_only=False)
     assert metrics["fallback_rate"] == 0.5
     assert metrics["degraded_rate"] == 0.5
+    assert metrics["availability"] == 0.5
+    assert metrics["specialty_accuracy"] == 0
+    assert metrics["specialty_accuracy_when_answered"] is None
+
+
+def test_w1_accuracy_when_answered_excludes_degraded_routine_cases():
+    cases = [
+        {"expect": {"red_flag": True, "route": "emergency_desk"}, "tags": [], "must_not": []},
+        {"expect": {"red_flag": False, "route": "book", "specialty": "SP07",
+                    "accept_specialties": ["SP07"]}, "tags": [], "must_not": []},
+        {"expect": {"red_flag": False, "route": "book", "specialty": "SP20",
+                    "accept_specialties": ["SP20"]}, "tags": [], "must_not": []},
+    ]
+    preds = [
+        {"red_flag": True, "route": "emergency_desk", "served_by": "none", "degraded": False,
+         "latency_s": 0.1},
+        {"red_flag": False, "route": "book", "specialty": "SP07", "offered_slots": 1,
+         "text_shown": "", "served_by": "primary", "degraded": False, "latency_s": 0.1},
+        {"red_flag": False, "route": "front_desk", "specialty": None, "offered_slots": 0,
+         "text_shown": "", "served_by": "unavailable", "degraded": True, "latency_s": 0.1},
+    ]
+
+    metrics = score_w1(cases, preds, rules_only=False)
+
+    assert metrics["specialty_accuracy"] == 0.5
+    assert metrics["specialty_accuracy_when_answered"] == 1
+    assert metrics["availability"] == 0.667
 
 
 def test_w2_metrics_include_serving_and_degradation_rates():
@@ -37,3 +64,4 @@ def test_w2_metrics_include_serving_and_degradation_rates():
     metrics = score_w2(cases, preds)
     assert metrics["fallback_rate"] == 1
     assert metrics["degraded_rate"] == 1
+    assert metrics["availability"] == 0
