@@ -198,6 +198,7 @@ proposed:
 - Shared Python 3.14 API/migrate image, migration ledger with transactional COPY adaptation and startup dependency; missing doctor/slot/report generation, fixture ingest, and patient/consent restart recovery without extending consent expiry.
 - Separate cached torch/pip build layers, README Core tier and three-step Start, and evidence-based discovery checkboxes; D2 and incomplete inventory licences remain unticked.
 - Isolated PostgreSQL regression for COPY, idempotence, rollback, partial fixture cohorts and unchanged consent expiry.
+- Day-8 change-request preparation (docs only): a timed two-hour checklist, ADR-004 draft template in ADR-001's format, and two short client message templates with confirmation, tradeoffs and revised dates.
 accepted: _pod to fill_
 rejected: _pod to fill_
 why: _pod to fill_
@@ -207,3 +208,5 @@ notes:
 - No `.env` was read, printed or edited; no eval runner, OpenRouter call or Docker build ran. Compose config passed with `--env-file NUL`, `COMPOSE_DISABLE_ENV_FILE=1`, `--no-env-resolution`, `--no-interpolate`, and `--quiet` to avoid dotenv access. Container startup itself was not executed, as requested.
 - Saved runs supply every headline and token number; calibrated faithfulness, end-to-end booking, W3 timing, availability, restore, full residency/retention and exhaustive audit/crash proof remain explicit gaps. Page 16/34 requirements use the supplied task; the source deck was not independently available. Pip caching does not guarantee byte-range resume of every interrupted download.
 - Verification: full `python -m pytest` with `DATABASE_URL=postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog` and `PYTHON_DOTENV_DISABLED=1`: **242 passed, 13 warnings in 48.99s**; no failures or skips. Warnings are dependency deprecations. Compose config validation passed (exit 0). Human review fields intentionally unfilled.
+- Day-8 docs notes: the first combined patch used an incomplete log heading as context; apply_patch rejected it before writing any files. The files were then created and reviewed against the requested checklist and ADR-001. No source deck was available for independent p.43 verification; content follows the supplied task.
+- Day-8 docs verification: the first pytest invocation hit a sandbox base-interpreter access denial; the tool error caught it and the approved rerun of the full `pytest` suite, with the required DATABASE_URL and `PYTHON_DOTENV_DISABLED=1`, reported **242 passed, 13 warnings in 30.55s**. `git diff --check` passed. No eval runner, OpenRouter call, Docker build or `.env` access. Human review fields remain untouched.
