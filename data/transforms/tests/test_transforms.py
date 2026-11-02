@@ -169,3 +169,25 @@ def test_healthcare_date_order_violations_fall_to_zero_and_names_are_gone():
     assert t.dropped == {"discharge_before_admission": 1, "exact_duplicate": 1}
     assert t.notes["date_order_violations_after"] == 0
     assert "Name" not in out.columns and not out.astype(str).apply(lambda c: c.str.contains("JacksOn")).any().any()
+
+
+def test_duplicate_note_keeps_most_specific_label_and_records_all():
+    """Found on the real file: keep-first put 976 notes under the generic 'Surgery'."""
+    labels = pd.DataFrame([dict(source_label="Surgery", specialty_id="SP12"),
+                           dict(source_label="Neurosurgery", specialty_id="SP06"),
+                           dict(source_label="Consult - History and Phy.", specialty_id=None)])
+    body = "PROCEDURE:, Ventriculostomy.,  FINDINGS:, Clear CSF.,"
+    raw = pd.DataFrame([dict(description="d", medical_specialty=lab, sample_name="x", transcription=body)
+                        for lab in (" Consult - History and Phy.", " Surgery", " Neurosurgery")])
+    out, t = transcriptions.transform(raw, labels, lambda s: s)
+    assert len(out) == 1 and t.dropped == {"duplicate_text": 2}
+    assert out.loc[0, "specialty_id"] == "SP06"
+    assert out.loc[0, "all_labels"] == ["Consult - History and Phy.", "Neurosurgery", "Surgery"]
+    assert ".," not in out.loc[0, "text"] and out.loc[0, "text"].splitlines() == [
+        "PROCEDURE: Ventriculostomy.", "FINDINGS: Clear CSF."]
+
+
+def test_dot_comma_is_a_line_break_even_without_a_space():
+    """Found on the real file: 'clear.,Neck: Supple' and 'cheaper.,2. Samples'."""
+    assert transcriptions.clean_text("TMs were clear.,Neck: Supple.,2. Samples given.,") == \
+        "TMs were clear.\nNeck: Supple.\n2. Samples given."

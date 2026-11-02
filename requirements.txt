@@ -6,3 +6,4 @@ psycopg[binary]>=3.2      # DB tests; not verified here (PyPI unreachable from t
 presidio-analyzer==2.2.364   # pack p.39; transcription scrub
 presidio-anonymizer       # version to pin after our own check
 kaggle                    # dataset download
+six                       # kaggle imports six but does not declare it (seen on Python 3.14, 2026-11-02)

@@ -7,13 +7,13 @@
 
 | Source | Kaggle / OpenML id | Pack estimate | Exact rows | Licence | Downloaded on | Used for |
 |---|---|---|---|---|---|---|
-| Medical Appointment No Shows | `joniarroba/noshowappointments` · OpenML 43439 | 110,527 | _TBD_ | CC BY-NC-SA 4.0 (per pack; confirm on page) | _TBD_ | Slot logic, no-show signal |
-| Medical Transcriptions | `tboyle10/medicaltranscriptions` | ~5,000 | _TBD_ | _check dataset page_ | _TBD_ | Dictation seed, synthetic PDFs |
-| Disease Symptom Prediction | `itachi9604/disease-symptom-description-dataset` | ~4,900 | _TBD_ | _check dataset page_ | _TBD_ | Symptom → specialty crosswalk |
-| A-Z Medicine Dataset of India | `shudhanshusingh/az-medicine-dataset-of-india` | 250,000+ | _TBD_ | _check dataset page_ | _TBD_ | Formulary, stock checks |
-| Healthcare Dataset (synthetic) | `prasad22/healthcare-dataset` | ~55,000 | _TBD_ | _check dataset page_ | _TBD_ | Patient master, encounters |
+| Medical Appointment No Shows | `joniarroba/noshowappointments` · OpenML 43439 | 110,527 | **110,527** (KaggleV2-May-2016.csv) | CC BY-NC-SA 4.0 per pack; _confirm from the download log_ | 2026-11-02 | Slot logic, no-show signal |
+| Medical Transcriptions | `tboyle10/medicaltranscriptions` | ~5,000 | **4,999** (mtsamples.csv) | _confirm from the download log_ | 2026-11-02 | Dictation seed, synthetic PDFs |
+| Disease Symptom Prediction | `itachi9604/disease-symptom-description-dataset` | ~4,900 | **4,920** (dataset.csv); plus Symptom-severity 133, symptom_Description 41, symptom_precaution 41 | CC BY-SA 4.0 | 2026-11-02 | Symptom → specialty crosswalk |
+| A-Z Medicine Dataset of India | `shudhanshusingh/az-medicine-dataset-of-india` | 250,000+ | **253,973** (A_Z_medicines_dataset_of_India.csv) | CC BY-SA 4.0 | 2026-11-02 | Formulary, stock checks |
+| Healthcare Dataset (synthetic) | `prasad22/healthcare-dataset` | ~55,000 | **55,500** (healthcare_dataset.csv) | CC0 1.0 | 2026-11-02 | Patient master, encounters |
 
-The Kaggle slug for No Shows is the commonly used one. Confirm it on the page, since the pack names only the author.
+The No Shows slug `joniarroba/noshowappointments` is confirmed: it downloaded and matches the pack's 110,527 rows exactly.
 
 ## Generated layer (team's own, `synthetic = true`)
 
@@ -32,3 +32,19 @@ The Kaggle slug for No Shows is the commonly used one. Confirm it on the page, s
 ## Source conflicts
 - **Doctor count:** deck p.19 audits the mix against a "1,400-doctor split", while p.20 and p.22 use 500. We use 500.
 - **Healthcare Dataset hospitals:** the source names are random company names. They are mapped by hash onto the 6 Sahyog hospitals, and no source name is kept.
+
+## Clean outputs (`python -m data.transforms.run_all`, 2026-11-02)
+
+| Source | Rows in | Rows out | Dropped, by reason | Notes |
+|---|---|---|---|---|
+| No Shows | 110,527 | 110,521 | negative/implausible age 1; scheduled after visit 5 | Measured no-show rate **20.2%** |
+| Disease Symptom | 4,920 | 4,920 | none | 41 diseases, 131 symptoms, 321 disease–symptom pairs; 41 crosswalk rows unreviewed |
+| Transcriptions | 4,999 | 2,357 | empty 33; duplicate text 2,609 | After the label fix: 54 with no specialty, 264 under a generic label, 38 labels |
+| Medicines | 253,973 | 246,068 | discontinued 7,905 | 11,021 compositions; 0 unparseable prices; pack-size regex missed 62 (0.03%) |
+| Healthcare | 55,500 | 54,966 | exact duplicate 534 | 0 date-order violations, before or after |
+
+## Findings from the real data
+1. **No-show rate is 20.2%, not the client's 18%.** This dataset is Brazilian 2016 data, not Sahyog's own, so this is a calibration note, not a contradiction. Put it to the client in discovery.
+2. **The "discharge before admission" mess (deck p.19) is not in the current Healthcare Dataset.** The check still runs, and the proof ("violations fall to zero") holds trivially.
+3. **Transcriptions are 53% duplicates.** The same note is filed under several labels. The first transform kept file order; it now keeps the most specific label and records all of them.
+4. **Licence obligations.** CC BY-SA (Disease Symptom, A-Z Medicine) means derived data shared outside the pod must carry the same licence. CC BY-NC-SA (No Shows, per pack) forbids commercial use, which is fine for the academy but must be swapped out before a real client deployment.
