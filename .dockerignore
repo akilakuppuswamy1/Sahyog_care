@@ -1,0 +1,9 @@
+.env
+**/.env
+.venv
+data/raw
+data/clean
+evals/runs
+.git
+**/__pycache__
+.pytest_cache

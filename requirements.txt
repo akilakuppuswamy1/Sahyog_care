@@ -12,4 +12,9 @@ langgraph-checkpoint-postgres>=3.0,<4  # pack p.39 pins 3.2.0
 python-dotenv>=1.0                     # reads .env
 reportlab>=4.0                 # renders the synthetic report PDFs
 pypdf>=5.0                     # reads uploaded PDFs (text layer)
-sentence-transformers>=6.0     # local BAAI/bge-m3 embeddings (checked 2026-11-02: 6.2.0 with torch 2.15.0)
+sentence-transformers==6.2.0  # checked 2026-11-02
+torch==2.15.0                # checked 2026-11-02
+fastapi==0.162.0             # checked 2026-11-02
+uvicorn[standard]==0.54.0    # checked 2026-11-02
+httpx==0.28.1                # checked 2026-11-02
+psycopg-pool==3.3.3          # checked 2026-11-02

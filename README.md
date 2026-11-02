@@ -17,7 +17,7 @@ docs/       prd-lite.md · rfp-response.md · adr/ · diagrams/
             task-cards.md (D1) · discovery-questions.md (D2)
             assumptions.md (D3) · data-contracts/ (D4)
 data/       inventory.md · inventory.py · transforms/ · synthetic/prompts/ · raw/ (git-ignored)
-services/   agent/ · scheduling/ · records/ · scribe/
+services/   api/ · agent/ · scheduling/ · records/ · scribe/
 evals/      sets/ · runs/ · report.md
 infra/      docker-compose.yml · deployment-adr.md
 memo/       executive-memo.md
@@ -44,6 +44,26 @@ Run the tests (the database tests run only when DATABASE_URL is set):
 $env:DATABASE_URL = "postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog"   # bash: export DATABASE_URL=...
 pytest
 ```
+
+### Run the app
+
+After the database setup and W2 fixture ingestion below, run locally from the activated venv:
+
+```powershell
+$env:DATABASE_URL="postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog"
+$env:SAHYOG_DEMO_AUTH="1"
+python -m uvicorn services.api.main:app --port 8000
+```
+
+Supply `OPENROUTER_API_KEY` and the model environment variables in the repo-root `.env` or your shell before starting locally. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled above).
+
+Or use Docker:
+
+```powershell
+docker compose -f infra/docker-compose.yml --profile app up -d --build
+```
+
+Compose supplies the demo auth flag and database URL, and optionally loads the existing `.env` for model settings. The `hfcache` volume caches the local bge-m3 download (about 2.3 GB). First startup loads the model before serving requests. Use one API worker for Core; demo authentication is not suitable for a public deployment.
 
 ## Getting the data
 1. Create a Kaggle API token and place it at `~/.kaggle/kaggle.json`.

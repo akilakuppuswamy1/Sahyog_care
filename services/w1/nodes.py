@@ -30,6 +30,7 @@ FRONT_DESK_REPLY = ("I want to make sure you see the right doctor, so I've passe
 
 class W1State(TypedDict, total=False):
     trace_id: str
+    idempotency_key: str
     patient_id: str            # from the auth context, never from model output
     text: str                  # everything the patient has told us, joined
     age: int | None
@@ -150,7 +151,7 @@ def apply_choice(s: W1State, slot_id: str) -> W1State:
 
 
 def book(s: W1State, tools: Store) -> W1State:
-    key = f"{s['trace_id']}:{s['chosen_slot']}"     # same run + same slot = same booking on retry
+    key = s.get("idempotency_key") or f"{s['trace_id']}:{s['chosen_slot']}"     # same run + same slot = same booking on retry
     try:
         appt = tools.book(s["patient_id"], s["chosen_slot"], key)
     except SlotFull:
