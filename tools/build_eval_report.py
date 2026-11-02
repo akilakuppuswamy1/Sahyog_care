@@ -13,7 +13,7 @@ def build_report(runs_dir: Path) -> str:
     latest = {}
     for p, run in sorted(runs, key=lambda pair: (pair[1].get("meta", {}).get("run_id", pair[0].stem), pair[0].name)):
         workflow = p.name.split("-")[0]
-        if workflow in ("w1", "w2") and run.get("meta", {}).get("mode") != "rules":
+        if workflow in ("w1", "w2", "w3") and run.get("meta", {}).get("mode") != "rules":
             latest[workflow] = (p, run)
 
     def availability(metrics):
@@ -30,16 +30,21 @@ def build_report(runs_dir: Path) -> str:
         m = r["metrics"]
         keys = (("red_flag_recall", "specialty_accuracy", "specialty_accuracy_when_answered",
                  "degraded_rate", "availability") if workflow == "w1" else
-                ("content_hit", "verified_rate", "scope_leaks", "degraded_rate", "availability"))
+                ("content_hit", "verified_rate", "scope_leaks", "degraded_rate", "availability")
+                if workflow == "w2" else
+                ("field_f1_macro", "medicine_precision", "medicine_recall", "invented_molecules",
+                 "class_only_handled", "stock_flag_correct"))
         values = {key: availability(m) if key == "availability" else m.get(key, "not measured") for key in keys}
         lines.append(f"| {workflow.upper()} | {r['meta']['run_id']} | {r['meta'].get('model', 'not recorded')} | "
                      f"{m.get('latency_p95_s', 'not measured')} | {m.get('fallback_rate', 'not measured')} | " +
                      "; ".join(f"{k}={values[k]}" for k in keys) + " |")
     lines += ["", "## Page 16 targets", "", "| Target | Measured (run id) | Met | Evidence | Gap / measurement tier and day |", "|---|---|---|---|---|"]
 
-    def measured(label, workflow, key, predicate):
+    def measured(label, workflow, key, predicate, subkey=None):
         pair = latest.get(workflow)
         value = pair[1]["metrics"].get(key) if pair else None
+        if subkey is not None and value is not None:
+            value = value.get(subkey)
         lines.append(f"| {label} | {value if value is not None else 'not measured'}" +
                      (f" ({pair[1]['meta']['run_id']})" if pair and value is not None else "") +
                      f" | {'yes' if value is not None and predicate(value) else 'NO'} | " +
@@ -53,7 +58,19 @@ def build_report(runs_dir: Path) -> str:
     measured("Record answer p95 < 8 s", "w2", "latency_p95_s", lambda x: x < 8)
     measured("W1 degraded rate <= 0.02", "w1", "degraded_rate", lambda x: x <= 0.02)
     measured("W2 degraded rate <= 0.02", "w2", "degraded_rate", lambda x: x <= 0.02)
-    gap("Note draft p95 < 20 s", "docs/diagrams/w3-graph.md", "W3 is Pro; measure on W3 delivery day (unscheduled)")
+    measured("Note draft p95 < 20 s", "w3", "latency_p95_s", lambda x: x < 20)
+    for field in ("S", "O", "A", "P"):
+        measured(f"W3 SOAP field F1 >= 0.9 ({field})", "w3", "field_f1",
+                 lambda x: x >= .9, subkey=field)
+    measured("W3 invented molecules = 0", "w3", "invented_molecules", lambda x: x == 0)
+    review_pair = latest.get("w3")
+    review_p95 = review_pair[1]["metrics"].get("review_time_p95_s") if review_pair else None
+    if review_p95 is None:
+        gap("W3 doctor review time p95 < 90 s",
+            "services/api/ops.py: note_draft.review_started_at to clinical_note.signed_at",
+            "No signed-note review timings in saved evals; the sourced ops tile appears after signing.")
+    else:
+        measured("W3 doctor review time p95 < 90 s", "w3", "review_time_p95_s", lambda x: x < 90)
     measured("Red-flag recall 100%", "w1", "red_flag_recall", lambda x: x == 1)
     measured("Specialty accuracy >= 85%", "w1", "specialty_accuracy", lambda x: x >= .85)
     gap("Answer faithfulness >= 0.9, calibrated judge", "Latest W2 headline proxies: content_hit and verified_rate", "Pro calibrated judge on W2 hardening day (unscheduled); proxies do not measure faithfulness")
@@ -62,7 +79,6 @@ def build_report(runs_dir: Path) -> str:
     gap("Time to book median < 3 min", "Same booking test; no session timing run", "Core demo/day-8 timed synthetic sessions pending")
     gap("Availability 99.5% in clinic hours", "infra/docker-compose.yml", "Not measured; Architect clinic-hours observation day (unscheduled)")
     gap("Audit: every record read logged with actor, purpose, time", "services/records/tests/test_w2.py::test_answer_is_cited_verified_and_audited; infra/db/tests/test_schema.py::test_audit_is_append_only_and_answers_who_saw; services/agent/w2/tools.py; infra/db/001_schema.sql", "Core application read auditing exists; tests cover answer reads/actor and append-only schema, not exhaustive SQL read coverage. Architect access-path audit day (unscheduled)", "partial")
-    gap("Doctor review time per note < 90 s", "docs/diagrams/w3-graph.md", "W3 is Pro; timed doctor study on W3 validation day (unscheduled)")
     gap("Cost per consultation computed with p.34 formula", "Saved run tokens; cost section below", "Measured call/turn token averages only; full consultation workflow mix and prices pending Core demo/day-8", "partial")
     gap("Residency: identified text stays in-region", "services/agent/w1/guards.py; infra/deployment-adr.md", "Regex egress guard exists; hosting region and complete de-identification unverified. Architect deployment day (unscheduled)", "partial")
     gap("Retention: audio gone within 24 h; audit kept 1 year", "infra/db/001_schema.sql", "Append-only audit exists; no timed retention proof. Pro W3 audio lifecycle; Architect audit retention validation day (unscheduled)")
@@ -81,7 +97,7 @@ def build_report(runs_dir: Path) -> str:
     lines += ["", "## p95 spread across graph runs", "",
               "| Workflow | Runs | Minimum p95 (s) | Maximum p95 (s) | Spread (s) |",
               "|---|---:|---:|---:|---:|"]
-    for workflow in ("w1", "w2"):
+    for workflow in ("w1", "w2", "w3"):
         values = [r.get("metrics", {}).get("latency_p95_s") for p, r in runs
                   if p.name.startswith(f"{workflow}-") and r.get("meta", {}).get("mode") != "rules" and
                   isinstance(r.get("metrics", {}).get("latency_p95_s"), (int, float))]

@@ -112,6 +112,37 @@ class CsvStockAdapter:
         }
 
 
+class ClinicCsvStockAdapter:
+    """Load only the selected clinic inventory from the generated stock directory."""
+
+    def __init__(self, directory: str | Path):
+        self.directory = Path(directory)
+        if not self.directory.is_dir():
+            raise FileNotFoundError(f"W3 stock directory does not exist: {self.directory}")
+        self.paths = sorted(self.directory.glob("*.csv"))
+        if not self.paths:
+            raise FileNotFoundError(f"W3 stock directory has no clinic CSV files: {self.directory}")
+        self._by_clinic = {path.stem: path for path in self.paths}
+        self._loaded: dict[str, CsvStockAdapter] = {}
+        self._molecule_adapter: CsvStockAdapter | None = None
+
+    def _adapter(self, clinic_id: str) -> CsvStockAdapter:
+        path = self._by_clinic.get(clinic_id)
+        if path is None:
+            raise NotConfigured(f"no stock CSV is configured for clinic {clinic_id}")
+        if clinic_id not in self._loaded:
+            self._loaded[clinic_id] = CsvStockAdapter(path)
+        return self._loaded[clinic_id]
+
+    def molecule_for(self, name: str) -> str | None:
+        if self._molecule_adapter is None:
+            self._molecule_adapter = self._adapter(self.paths[0].stem)
+        return self._molecule_adapter.molecule_for(name)
+
+    def check(self, clinic_id: str, medicine: dict) -> dict:
+        return self._adapter(clinic_id).check(clinic_id, medicine)
+
+
 class ApiStockAdapter:
     """API contract: query by clinic and normalized molecule, return quantity and as_of.
 

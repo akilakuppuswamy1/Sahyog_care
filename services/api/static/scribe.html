@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sahyog clinical scribe</title>
+  <style>
+    :root { color-scheme: light; font: 16px/1.45 system-ui, sans-serif; color: #172b3a; background: #f4f7f6; }
+    * { box-sizing: border-box; }
+    body { margin: 0 auto; max-width: 1280px; padding: 1.25rem; }
+    h1, h2 { color: #145b55; margin: 0 0 .7rem; }
+    h1 { font-size: 1.65rem; }
+    h2 { font-size: 1.1rem; }
+    .bar, .panel, article { background: white; border: 1px solid #cbd8d5; border-radius: 9px; padding: 1rem; }
+    .bar { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem; margin-bottom: 1rem; }
+    .bar label { flex: 1 1 220px; }
+    .layout { display: grid; grid-template-columns: minmax(290px, .85fr) minmax(480px, 1.5fr); gap: 1rem; align-items: start; }
+    .stack { display: grid; gap: 1rem; }
+    label { display: grid; gap: .3rem; font-weight: 600; }
+    input, select, textarea, button { font: inherit; }
+    input, select, textarea { width: 100%; padding: .55rem .65rem; border: 1px solid #9aada9; border-radius: 5px; background: white; color: inherit; }
+    textarea { min-height: 7rem; resize: vertical; }
+    .soap textarea { min-height: 5.2rem; }
+    button { border: 0; border-radius: 5px; padding: .58rem .85rem; background: #145b55; color: white; cursor: pointer; font-weight: 650; }
+    button.secondary { background: #52656e; }
+    button.reject { background: #a4262c; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .row { display: flex; flex-wrap: wrap; gap: .55rem; align-items: end; }
+    .row > label { flex: 1 1 180px; }
+    .medicines { display: grid; gap: .7rem; }
+    .medicine { border: 1px solid #d5dfdc; border-radius: 7px; padding: .75rem; display: grid; gap: .6rem; }
+    .medicine-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: .55rem; }
+    .badge { display: inline-block; border-radius: 4px; background: #e7f1ee; color: #145b55; padding: .15rem .4rem; font-size: .86rem; font-weight: 700; }
+    .badge.stock { background: #fde8e7; color: #a4262c; }
+    .badge.flag { background: #fff1c2; color: #785600; }
+    .out-of-stock { color: #a4262c; font-weight: 650; }
+    .muted { color: #52656e; font-size: .92rem; }
+    .history { margin: .35rem 0 0; padding-left: 1.25rem; }
+    .status { min-height: 1.5rem; color: #a4262c; font-weight: 600; }
+    .signed { border-left: 4px solid #176b3a; padding-left: .8rem; overflow-wrap: anywhere; }
+    .signed code { word-break: break-all; }
+    .empty { color: #52656e; }
+    @media (max-width: 760px) {
+      body { padding: .7rem; }
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Clinical scribe</h1>
+  <form class="bar" id="auth-form">
+    <label for="doctor-id">Doctor ID
+      <input id="doctor-id" required autocomplete="username" placeholder="e.g. DR-0001">
+    </label>
+    <button>Sign in</button>
+    <span class="muted">Demo authentication only</span>
+  </form>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <main class="layout">
+    <div class="stack">
+      <section class="panel">
+        <h2>New draft</h2>
+        <form id="draft-form" class="stack">
+          <label for="encounter-id">Encounter ID
+            <input id="encounter-id" required maxlength="128" autocomplete="off">
+          </label>
+          <label for="fixture-list">Pick a fixture transcript
+            <select id="fixture-list"><option value="">Loading fixtures…</option></select>
+          </label>
+          <label for="transcript">Or paste a transcript
+            <textarea id="transcript" required maxlength="20000" placeholder="Paste the consultation dictation"></textarea>
+          </label>
+          <button id="generate">Generate unsigned draft</button>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>Your drafts</h2>
+        <div class="row">
+          <label for="draft-status">Status
+            <select id="draft-status"><option value="draft">Draft</option><option value="parked">Parked</option></select>
+          </label>
+          <button class="secondary" id="refresh-drafts" type="button">Refresh</button>
+        </div>
+        <div id="draft-list" class="stack empty" aria-live="polite">Sign in to load your drafts.</div>
+      </section>
+    </div>
+    <section class="panel" id="review-panel">
+      <h2>Doctor review</h2>
+      <div id="draft-output" class="empty">Generate or open a draft to review it.</div>
+    </section>
+  </main>
+  <script>
+    const doctorInput = document.getElementById("doctor-id");
+    const statusOutput = document.getElementById("status");
+    const draftOutput = document.getElementById("draft-output");
+    const tokenKey = "sahyogScribeToken";
+    let activeDraft = null;
+    const savedToken = sessionStorage.getItem(tokenKey) || "";
+    doctorInput.value = savedToken.startsWith("demo-doc-") ? savedToken.slice("demo-doc-".length) : "";
+
+    function headers(idempotencyKey) {
+      const saved = sessionStorage.getItem(tokenKey) || "";
+      const result = { Authorization: `Bearer ${saved}` };
+      if (idempotencyKey) result["Idempotency-Key"] = idempotencyKey;
+      return result;
+    }
+
+    function makeKey() {
+      return globalThis.crypto && crypto.randomUUID
+        ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+
+    async function request(path, options = {}) {
+      const response = await fetch(path, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
+      return data;
+    }
+
+    function field(label, value, fieldName, multiline = false) {
+      const wrapper = document.createElement("label");
+      wrapper.textContent = label;
+      const input = document.createElement(multiline ? "textarea" : "input");
+      input.value = value || "";
+      input.dataset.field = fieldName;
+      wrapper.append(input);
+      return wrapper;
+    }
+
+    function showHistory(history) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h3");
+      heading.textContent = "Edit history";
+      section.append(heading);
+      if (!history || !history.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "No edits recorded.";
+        section.append(empty);
+        return section;
+      }
+      const list = document.createElement("ol");
+      list.className = "history";
+      for (const edit of history) {
+        const item = document.createElement("li");
+        item.textContent = `${edit.field}: ${JSON.stringify(edit.before)} → ${JSON.stringify(edit.after)} `
+          + `(${edit.edited_by})`;
+        list.append(item);
+      }
+      section.append(list);
+      return section;
+    }
+
+    function medicineRows(medicines, flags, clinicId) {
+      const container = document.createElement("section");
+      const heading = document.createElement("h3");
+      heading.textContent = "Medicines";
+      container.append(heading);
+      const list = document.createElement("div");
+      list.className = "medicines";
+      medicines.forEach((medicine, index) => {
+        const card = document.createElement("article");
+        card.className = "medicine";
+        const badges = document.createElement("div");
+        const stock = document.createElement("span");
+        stock.className = "badge";
+        stock.textContent = medicine.status === "in_stock" ? "IN STOCK"
+          : medicine.status === "out_of_stock" ? "OUT OF STOCK" : "STOCK UNKNOWN";
+        badges.append(stock);
+        const relatedFlags = flags.filter(flag => flag.field && flag.field.startsWith(`medicines.${index}.`));
+        if (relatedFlags.length) {
+          const grounding = document.createElement("span");
+          grounding.className = "badge flag";
+          grounding.textContent = "GROUNDING REVIEW";
+          badges.append(grounding);
+        }
+        card.append(badges);
+        const grid = document.createElement("div");
+        grid.className = "medicine-grid";
+        for (const key of ["name", "molecule", "dose", "frequency"]) {
+          grid.append(field(key[0].toUpperCase() + key.slice(1), medicine[key], `medicines.${index}.${key}`));
+        }
+        grid.append(field("Supporting quote", medicine.quote, `medicines.${index}.quote`, true));
+        card.append(grid);
+        if (medicine.status === "out_of_stock") {
+          const warning = document.createElement("div");
+          warning.className = "out-of-stock";
+          const alternatives = (medicine.alternatives || []).map(item => item.name).join(", ");
+          warning.textContent = `out of stock at ${clinicId || "this clinic"} · in-stock alternatives: `
+            + `${alternatives || "none listed"}`;
+          card.append(warning);
+        }
+        list.append(card);
+      });
+      if (!medicines.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "No medicines in this draft.";
+        list.append(empty);
+      }
+      container.append(list);
+      return container;
+    }
+
+    function collectEdits() {
+      if (!activeDraft) return [];
+      const edits = [];
+      for (const key of ["S", "O", "A", "P"]) {
+        const input = draftOutput.querySelector(`[data-field="${key}"]`);
+        if (input && input.value !== (activeDraft.soap_json[key] || "")) {
+          edits.push({ field: key, value: input.value });
+        }
+      }
+      const medicines = [...draftOutput.querySelectorAll(".medicine")].map((card, index) => {
+        const row = {};
+        for (const key of ["name", "molecule", "dose", "frequency", "quote"]) {
+          row[key] = card.querySelector(`[data-field^="medicines."][data-field$=".${key}"]`).value;
+        }
+        const original = activeDraft.soap_json.medicines || [];
+        const prior = original[index] || {};
+        for (const key of ["status", "medicine_id", "as_of", "alternatives"]) {
+          if (prior[key] !== undefined) row[key] = prior[key];
+        }
+        return row;
+      });
+      const editable = list => list.map(({ name, molecule, dose, frequency, quote }) =>
+        ({ name, molecule, dose, frequency, quote }));
+      if (JSON.stringify(editable(medicines)) !==
+          JSON.stringify(editable(activeDraft.soap_json.medicines || []))) {
+        edits.push({ field: "medicines", value: medicines });
+      }
+      return edits;
+    }
+
+    function renderDraft(draft) {
+      activeDraft = draft;
+      draftOutput.replaceChildren();
+      const metadata = document.createElement("p");
+      metadata.className = "muted";
+      metadata.textContent = `Draft ${draft.draft_id} · encounter ${draft.encounter_id} · `
+        + `version ${draft.version} · ${draft.status}`;
+      draftOutput.append(metadata);
+      if (draft.signed_note) {
+        const signed = document.createElement("div");
+        signed.className = "signed";
+        signed.textContent = `Signed note v${draft.signed_note.version} · ID ${draft.signed_note.note_id} · `;
+        const hash = document.createElement("code");
+        hash.textContent = draft.signed_note.content_hash;
+        signed.append(hash);
+        draftOutput.append(signed);
+      }
+      for (const flag of draft.flags || []) {
+        const line = document.createElement("p");
+        line.className = "badge flag";
+        line.textContent = `${flag.kind}: ${flag.message}`;
+        draftOutput.append(line);
+      }
+      const soap = document.createElement("section");
+      soap.className = "soap stack";
+      const title = document.createElement("h3");
+      title.textContent = "SOAP note";
+      soap.append(title);
+      for (const [key, label] of [["S", "Subjective"], ["O", "Objective"],
+        ["A", "Assessment"], ["P", "Plan"]]) {
+        soap.append(field(label, draft.soap_json[key], key, true));
+      }
+      draftOutput.append(soap);
+      draftOutput.append(medicineRows(draft.soap_json.medicines || [], draft.flags || [], draft.clinic_id));
+      if (draft.edit_history && draft.edit_history.length) draftOutput.append(showHistory(draft.edit_history));
+      if (draft.signed_note && draft.signed_note.edit_history) {
+        draftOutput.append(showHistory(draft.signed_note.edit_history));
+      }
+      if (draft.status === "draft") {
+        const actions = document.createElement("div");
+        actions.className = "row";
+        const approve = document.createElement("button");
+        approve.textContent = "Approve & sign";
+        approve.addEventListener("click", () => review("approve"));
+        const reject = document.createElement("button");
+        reject.className = "reject";
+        reject.textContent = "Reject";
+        reject.addEventListener("click", () => review("reject"));
+        actions.append(approve, reject);
+        draftOutput.append(actions);
+      }
+    }
+
+    async function review(action) {
+      if (!activeDraft) return;
+      statusOutput.textContent = "";
+      try {
+        const edits = action === "reject" ? [] : collectEdits();
+        if (action === "approve" && edits.length) {
+          const updated = await request(`/scribe/api/drafts/${encodeURIComponent(activeDraft.draft_id)}/review`, {
+            method: "POST", headers: { ...headers(makeKey()), "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "edit", edits }),
+          });
+          renderDraft(updated.draft);
+        }
+        const result = await request(`/scribe/api/drafts/${encodeURIComponent(activeDraft.draft_id)}/review`, {
+          method: "POST", headers: { ...headers(makeKey()), "Content-Type": "application/json" },
+          body: JSON.stringify({ action, edits: [] }),
+        });
+        if (result.draft) renderDraft(result.draft);
+        else if (result.signed_note) {
+          const signedDraft = await request(`/scribe/api/drafts/${encodeURIComponent(activeDraft.draft_id)}`,
+            { headers: headers() });
+          renderDraft(signedDraft);
+        } else {
+          draftOutput.textContent = result.status === "rejected" ? "Draft rejected." : result.status;
+        }
+        statusOutput.textContent = "";
+      } catch (error) { statusOutput.textContent = error.message; }
+    }
+
+    async function loadFixtures() {
+      const select = document.getElementById("fixture-list");
+      const fixtures = await request("/scribe/api/fixtures", { headers: headers() });
+      select.replaceChildren(new Option("Select a fixture…", ""));
+      for (const fixture of fixtures) select.add(new Option(fixture.id, fixture.transcript));
+    }
+
+    async function loadDrafts() {
+      const list = document.getElementById("draft-list");
+      list.replaceChildren();
+      const status = document.getElementById("draft-status").value;
+      const drafts = await request(`/scribe/api/drafts?status=${encodeURIComponent(status)}`,
+        { headers: headers() });
+      if (!drafts.length) {
+        list.textContent = `No ${status} drafts.`;
+        return;
+      }
+      for (const draft of drafts) {
+        const button = document.createElement("button");
+        button.className = "secondary";
+        button.type = "button";
+        button.textContent = `${draft.encounter_id} · v${draft.version} · ${draft.status}`;
+        button.addEventListener("click", async () => {
+          try {
+            renderDraft(await request(`/scribe/api/drafts/${encodeURIComponent(draft.draft_id)}`,
+              { headers: headers() }));
+          } catch (error) { statusOutput.textContent = error.message; }
+        });
+        list.append(button);
+      }
+    }
+
+    document.getElementById("auth-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      sessionStorage.setItem(tokenKey, `demo-doc-${doctorInput.value.trim()}`);
+      statusOutput.textContent = "";
+      try {
+        await loadFixtures();
+        await loadDrafts();
+      } catch (error) { statusOutput.textContent = error.message; }
+    });
+
+    document.getElementById("fixture-list").addEventListener("change", event => {
+      if (event.target.value) document.getElementById("transcript").value = event.target.value;
+    });
+
+    document.getElementById("draft-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      statusOutput.textContent = "";
+      const button = document.getElementById("generate");
+      button.disabled = true;
+      try {
+        const result = await request("/scribe/api/drafts", {
+          method: "POST", headers: { ...headers(makeKey()), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            encounter_id: document.getElementById("encounter-id").value.trim(),
+            transcript: document.getElementById("transcript").value,
+          }),
+        });
+        renderDraft(result.draft);
+        await loadDrafts();
+      } catch (error) { statusOutput.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+
+    document.getElementById("refresh-drafts").addEventListener("click", async () => {
+      try { await loadDrafts(); }
+      catch (error) { statusOutput.textContent = error.message; }
+    });
+    document.getElementById("draft-status").addEventListener("change", async () => {
+      try { await loadDrafts(); }
+      catch (error) { statusOutput.textContent = error.message; }
+    });
+  </script>
+</body>
+</html>

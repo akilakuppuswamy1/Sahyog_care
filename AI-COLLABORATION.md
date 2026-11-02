@@ -268,12 +268,16 @@ proposed:
 - Add CSV/API stock adapters and a W3 graph that scrubs, runs deterministic red flags before the model, grounds medicine details, and rechecks edits before review.
 - Persist editable drafts and edit rows separately from immutable signed notes; bind signing to the treating doctor, hash notes in Postgres, link later versions, and audit signing/notification intent.
 - Configure the W3 model default and 20-second deadline without changing W1/W2 workflow defaults; add a schedulable timeout command and document the graph/schema.
+- Wire the existing W3 graph/store into a doctor-scoped API and static console; add a 40-case W3 eval/report pipeline, sourced Ops review/edit metrics, and W3 cost reporting.
+- Export the compiled W3 graph and update the architecture, README tier text, D7, and stock-file ignore/mount configuration.
 accepted: _pod to fill_
 rejected: _pod to fill_
 why: _pod to fill_
 notes:
 - What the agent got wrong: the first W3 edit-resume test showed LangGraph had discarded the doctor edit list because `edits` was absent from `W3State`; `test_later_edit_creates_version_two_with_supersedes` caught it. The field was added to the typed state and the test passed.
 - What the agent got wrong: the first bulk generator scanned all 246,068 formulary rows for every transcript and exceeded three minutes; the running command exposed the cost. A first-token index reduced the repeated work and the generator then produced all 300 records and 40 fixtures. The initial stock generator run also caught a missing repository import path (`ModuleNotFoundError: data`), fixed before successful CSV generation.
+- What the agent got wrong: the first PostgreSQL API integration run returned HTTP 500 because `deps.py` used `json.dumps` for durable idempotency responses without importing `json`; `test_postgres_pick_slot_resume_and_replay` caught it. The import was added and the focused PostgreSQL/API/schema/eval tests passed. The first ignore check also found `data/synthetic/out/` absent from `.dockerignore`; it is now excluded there and remains covered by `.gitignore`.
+- W3 API exposure verification: focused PostgreSQL/API/schema/eval tests passed (20 passed); full `.venv\Scripts\pytest.exe` with the required local `DATABASE_URL` and `PYTHON_DOTENV_DISABLED=1`: **296 passed, 13 warnings in 43.19s**. `git diff --check` passed. `evals/run_w3.py` was not run as requested.
 - Verification: focused W3, fixture, and PostgreSQL migration tests passed (26 passed). Final `.venv\Scripts\pytest.exe` with `DATABASE_URL=postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog` and `PYTHON_DOTENV_DISABLED=1`: **289 passed, 13 warnings in 60.65s**. `git diff --check` and timeout worker import passed.
 - Applied `008_w3_drafts.sql` and `009_w3_draft_version_retry.sql` to the local database with `tools/migrate.py`. Generated output contains 300 dictations, 40 fixed fixtures, 25 represented specialties, and 28 per-clinic stock CSVs; generated output remains git-ignored.
 - No `.env` access, OpenRouter request, eval run, or Docker build. Pylance diagnostics timed out; focused and full pytest runs validated Python behavior. Human review fields remain unfilled.

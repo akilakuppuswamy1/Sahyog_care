@@ -96,6 +96,14 @@
         formatted.text = percentText(value);
       } else if (tile.id === "pick-slot-wait") {
         formatted.text = `p95 ${numberText(Number(value.p95_ms) / 1000)} s (n = ${value.count})`;
+      } else if (tile.id === "scribe-review-time") {
+        formatted.text = `median ${numberText(value.median_s, 2)} s · p95 ${numberText(value.p95_s, 2)} s `
+          + `(n = ${value.count})`;
+        formatted.detail = `Target: < 90 s · measured per signed note`;
+        formatted.status = Number(value.p95_s) < Number(value.target_s) ? "good" : "bad";
+      } else if (tile.id === "scribe-edit-distance") {
+        formatted.text = `median ${numberText(value.median_characters, 0)} characters · p95 `
+          + `${numberText(value.p95_characters, 0)} characters (n = ${value.count})`;
       } else if (value && typeof value === "object") {
         formatted.text = Object.entries(value)
           .map(([key, item]) => `${key.replaceAll("_", " ")}: ${String(item)}`).join(" · ");

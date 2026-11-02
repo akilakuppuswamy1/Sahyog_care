@@ -13,6 +13,8 @@ def test_export_compiled_graphs(tmp_path):
         "w1": {"intake", "detect_language", "red_flag_rules", "model_checks", "redirect_records",
                "er_handoff", "clarify", "front_desk", "shortlist", "present_and_pick", "book", "notify"},
         "w2": {"scope_guard", "doctor_check", "retrieve", "widen", "not_found", "answer", "verify"},
+        "w3": {"intake", "scrub", "red_flag_rules", "draft_soap", "grounding_check", "stock_check",
+               "persist_draft", "doctor_review", "apply_edits", "reject_draft", "sign_draft", "notify"},
     }
     for name, nodes in expected.items():
         content = (tmp_path / f"{name}-graph.md").read_text(encoding="utf-8")

@@ -31,7 +31,7 @@ def cur():
         sql = sql.replace("vector(1024)", "real[]")
     sql = re.sub(r"^\s*(BEGIN|COMMIT);\s*$", "", sql, flags=re.M)
     c.execute(sql)
-    for migration_path in sorted(DB.glob("00[89]_w3_*.sql")):
+    for migration_path in sorted(DB.glob("00[89]_w3_*.sql")) + [DB / "010_w3_api.sql"]:
         migration = migration_path.read_text()
         migration = re.sub(r"^\s*(BEGIN|COMMIT);\s*$", "", migration, flags=re.M)
         c.execute(migration)

@@ -11,6 +11,9 @@ from typing import Protocol
 
 class W3Store(Protocol):
     def get_encounter(self, encounter_id: str, doctor_id: str) -> dict: ...
+    def get_draft(self, draft_id: str, doctor_id: str) -> dict | None: ...
+    def list_drafts(self, doctor_id: str, status: str) -> list[dict]: ...
+    def signed_note_metrics(self) -> list[dict]: ...
     def next_version(self, encounter_id: str) -> int: ...
     def save_draft(self, draft: dict, status: str = "draft") -> datetime: ...
     def record_edit(self, draft_id: str, field: str, before: object, after: object, doctor_id: str) -> None: ...
@@ -74,6 +77,80 @@ class PostgresW3Store:
             raise ValueError("encounter clinic does not match the treating doctor's clinic")
         return {"encounter_id": row[0], "patient_id": row[1], "doctor_id": row[2], "clinic_id": clinic_id}
 
+    def _draft(self, row) -> dict:
+        draft = {
+            "draft_id": str(row[0]), "encounter_id": row[1], "doctor_id": row[2],
+            "version": int(row[3]), "soap_json": row[4], "flags": row[5], "status": row[6],
+            "created_at": row[7], "review_started_at": row[8], "initial_soap_json": row[9],
+            "clinic_id": row[10],
+        }
+        edits = self.conn.execute(
+            """SELECT field, "before", "after", edited_by, edited_at
+                 FROM note_edit WHERE draft_id = %s ORDER BY edited_at, edit_id""",
+            (draft["draft_id"],),
+        ).fetchall()
+        draft["edit_history"] = [
+            {"field": edit[0], "before": edit[1], "after": edit[2], "edited_by": edit[3],
+             "edited_at": edit[4]}
+            for edit in edits
+        ]
+        if row[11] is not None:
+            draft["signed_note"] = {
+                "note_id": str(row[11]), "version": int(row[12]), "signed_at": row[13],
+                "content_hash": row[14], "supersedes": str(row[15]) if row[15] else None,
+                "soap_json": row[16], "edit_history": row[17],
+            }
+        return draft
+
+    def get_draft(self, draft_id: str, doctor_id: str) -> dict | None:
+        row = self.conn.execute(
+            """SELECT d.draft_id, d.encounter_id, d.doctor_id, d.version, d.soap_json, d.flags,
+                      d.status, d.created_at, d.review_started_at, d.initial_soap_json,
+                      COALESCE(e.clinic_id, doc.clinic_id),
+                      n.note_id, n.version, n.signed_at, n.content_hash, n.supersedes,
+                      n.soap_json, n.edit_history
+                 FROM note_draft d
+                 JOIN encounter e ON e.encounter_id = d.encounter_id AND e.doctor_id = d.doctor_id
+                 JOIN doctor doc ON doc.doctor_id = d.doctor_id
+                 LEFT JOIN clinical_note n ON n.note_id = d.signed_note_id
+                WHERE d.draft_id = %s AND d.doctor_id = %s""",
+            (draft_id, doctor_id),
+        ).fetchone()
+        return self._draft(row) if row else None
+
+    def list_drafts(self, doctor_id: str, status: str) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT d.draft_id, d.encounter_id, d.doctor_id, d.version, d.soap_json, d.flags,
+                      d.status, d.created_at, d.review_started_at, d.initial_soap_json,
+                      COALESCE(e.clinic_id, doc.clinic_id),
+                      n.note_id, n.version, n.signed_at, n.content_hash, n.supersedes,
+                      n.soap_json, n.edit_history
+                 FROM note_draft d
+                 JOIN encounter e ON e.encounter_id = d.encounter_id AND e.doctor_id = d.doctor_id
+                 JOIN doctor doc ON doc.doctor_id = d.doctor_id
+                 LEFT JOIN clinical_note n ON n.note_id = d.signed_note_id
+                WHERE d.doctor_id = %s AND d.status = %s
+                ORDER BY d.created_at DESC, d.draft_id""",
+            (doctor_id, status),
+        ).fetchall()
+        return [self._draft(row) for row in rows]
+
+    def signed_note_metrics(self) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT d.initial_soap_json, d.soap_json, d.review_started_at, n.signed_at
+                 FROM note_draft d
+                 JOIN clinical_note n ON n.note_id = d.signed_note_id
+                WHERE d.status = 'signed' ORDER BY n.signed_at"""
+        ).fetchall()
+        result = []
+        for initial, final, started, signed_at in rows:
+            distance = (sum(edit_distances(initial, final).values())
+                        if initial is not None else None)
+            review_ms = ((signed_at - started).total_seconds() * 1000
+                         if started is not None else None)
+            result.append({"review_ms": review_ms, "edit_distance": distance})
+        return result
+
     def next_version(self, encounter_id: str) -> int:
         active = self.conn.execute(
             "SELECT 1 FROM note_draft WHERE encounter_id = %s AND status = 'draft' LIMIT 1",
@@ -90,15 +167,18 @@ class PostgresW3Store:
     def save_draft(self, draft: dict, status: str = "draft") -> datetime:
         row = self.conn.execute(
             """INSERT INTO note_draft
-                   (draft_id, encounter_id, doctor_id, version, soap_json, flags, status, review_started_at)
+                   (draft_id, encounter_id, doctor_id, version, soap_json, flags, status, review_started_at,
+                    initial_soap_json)
                VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s,
-                       CASE WHEN %s = 'draft' THEN now() END)
+                       CASE WHEN %s = 'draft' THEN now() END, %s::jsonb)
                ON CONFLICT (draft_id) DO UPDATE
-                   SET soap_json = EXCLUDED.soap_json, flags = EXCLUDED.flags, status = EXCLUDED.status
+                   SET soap_json = EXCLUDED.soap_json, flags = EXCLUDED.flags, status = EXCLUDED.status,
+                       initial_soap_json = COALESCE(note_draft.initial_soap_json, EXCLUDED.initial_soap_json)
                  WHERE note_draft.status IN ('draft','parked')
                RETURNING review_started_at""",
             (draft["draft_id"], draft["encounter_id"], draft["doctor_id"], draft["version"],
-             json.dumps(draft["soap_json"]), json.dumps(draft.get("flags", [])), status, status),
+             json.dumps(draft["soap_json"]), json.dumps(draft.get("flags", [])), status, status,
+             json.dumps(draft.get("initial_soap_json", draft["soap_json"]))),
         ).fetchone()
         if row is None:
             raise ValueError("draft is already signed or rejected")
@@ -235,6 +315,41 @@ class InMemoryW3Store:
             raise PermissionError("only the treating doctor may access this encounter")
         return dict(encounter)
 
+    def get_draft(self, draft_id: str, doctor_id: str) -> dict | None:
+        draft = self.drafts.get(draft_id)
+        if draft is None or draft["doctor_id"] != doctor_id:
+            return None
+        result = dict(draft)
+        result["edit_history"] = [
+            {key: value for key, value in edit.items() if key != "draft_id"}
+            for edit in self.edits if edit["draft_id"] == draft_id
+        ]
+        if draft.get("signed_note_id"):
+            result["signed_note"] = next(
+                (dict(note) for note in self.notes if note["note_id"] == draft["signed_note_id"]), None
+            )
+        return result
+
+    def list_drafts(self, doctor_id: str, status: str) -> list[dict]:
+        return [
+            result for draft_id, draft in self.drafts.items()
+            if draft["doctor_id"] == doctor_id and draft["status"] == status
+            if (result := self.get_draft(draft_id, doctor_id)) is not None
+        ]
+
+    def signed_note_metrics(self) -> list[dict]:
+        result = []
+        for note in self.notes:
+            draft = self.drafts[note.get("draft_id", "")]
+            started = draft.get("review_started_at")
+            signed_at = note.get("signed_at")
+            review_ms = ((signed_at - started).total_seconds() * 1000
+                         if signed_at is not None and started is not None else None)
+            initial = draft.get("initial_soap_json")
+            distance = sum(edit_distances(initial, note["soap_json"]).values()) if initial is not None else None
+            result.append({"review_ms": review_ms, "edit_distance": distance})
+        return result
+
     def next_version(self, encounter_id: str) -> int:
         versions = [note["version"] for note in self.notes if note["encounter_id"] == encounter_id]
         if any(draft["encounter_id"] == encounter_id and draft["status"] == "draft"
@@ -282,7 +397,9 @@ class InMemoryW3Store:
         signed = {
             "note_id": str(uuid.uuid4()), "encounter_id": saved["encounter_id"], "doctor_id": doctor_id,
             "version": version, "soap_json": saved["soap_json"],
-            "signed_by": doctor_id, "content_hash": hashlib.sha256(
+            "signed_by": doctor_id, "signed_at": datetime.now(timezone.utc), "draft_id": draft["draft_id"],
+            "edit_history": saved.get("edit_history", []),
+            "content_hash": hashlib.sha256(
                 json.dumps(saved["soap_json"], ensure_ascii=False, sort_keys=True).encode()
             ).hexdigest(),
             "supersedes": prior["note_id"] if prior else None,

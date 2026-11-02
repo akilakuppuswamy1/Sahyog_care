@@ -67,7 +67,7 @@ def intake(s: W3State, store: W3Store) -> W3State:
         "doctor_id": doctor_id,
         "patient_id": encounter["patient_id"],
         "clinic_id": encounter["clinic_id"],
-        "draft_id": str(uuid.uuid4()),
+        "draft_id": s.get("draft_id") or str(uuid.uuid4()),
         "version": store.next_version(encounter_id),
         "trace_id": s.get("trace_id") or uuid.uuid4().hex,
         "flags": [],
@@ -253,7 +253,7 @@ def _draft_payload(s: W3State) -> dict:
     soap_json = s.get("soap_json") or {**{field: "" for field in SOAP_FIELDS}, "medicines": []}
     return {
         "draft_id": s["draft_id"], "encounter_id": s["encounter_id"], "doctor_id": s["doctor_id"],
-        "version": s["version"], "soap_json": soap_json,
+        "version": s["version"], "clinic_id": s["clinic_id"], "soap_json": soap_json,
         "medicines": s.get("medicines", soap_json.get("medicines", [])),
         "initial_soap_json": s.get("initial_soap_json", soap_json),
         "flags": s.get("flags", []), "edit_history": s.get("edit_history", []),

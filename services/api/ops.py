@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+from statistics import median
 
 from services.api import frontdesk
 from services.agent.llm import breaker_snapshot
@@ -163,6 +164,28 @@ def build_ops_summary(deps, runs_dir: Path | None = None) -> dict:
         "sla_minutes": sla_minutes,
         "over_sla": sum(age > sla_minutes for age in ages) if ages else "not measured",
     }, "audit_event escalations minus frontdesk_handling; OPS_REVIEW_SLA_MINUTES")
+
+    w3_store = getattr(deps, "w3_store", None)
+    if w3_store is not None:
+        signed = w3_store.signed_note_metrics()
+        review_seconds = [float(row["review_ms"]) / 1000 for row in signed
+                          if row.get("review_ms") is not None]
+        if review_seconds:
+            p95 = _percentile_95(review_seconds)
+            _add_tile(tiles, "scribe-review-time", "review per note", {
+                "median_s": round(median(review_seconds), 3),
+                "p95_s": p95,
+                "count": len(review_seconds),
+                "target_s": 90,
+            }, "note_draft.review_started_at to clinical_note.signed_at, signed notes")
+        distances = [int(row["edit_distance"]) for row in signed
+                     if row.get("edit_distance") is not None]
+        if distances:
+            _add_tile(tiles, "scribe-edit-distance", "edit distance draft to signed", {
+                "median_characters": median(distances),
+                "p95_characters": _percentile_95([float(value) for value in distances]),
+                "count": len(distances),
+            }, "note_draft.initial_soap_json to signed clinical_note.soap_json")
 
     return {"generated_at": now.isoformat(), "tiles": tiles}
 

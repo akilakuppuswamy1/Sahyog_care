@@ -1,4 +1,5 @@
 """Build graphs once at startup; own and close their resources."""
+import json
 import os
 from contextlib import ExitStack
 from dataclasses import dataclass, field
@@ -11,6 +12,9 @@ from services.agent.store import InMemoryStore, PostgresStore
 from services.agent.w1.graph import compile_w1
 from services.agent.w2.graph import compile_w2
 from services.agent.w2.tools import InMemoryRecordsTools, PostgresRecordsTools
+from services.agent.w3.graph import compile_w3
+from services.agent.w3.stock import ClinicCsvStockAdapter
+from services.agent.w3.store import InMemoryW3Store, PostgresW3Store
 from services.records.embed import BgeM3Embedder, HashEmbedder
 from services.records.retrieve import InMemoryRetriever, PostgresRetriever
 from services.common.tracing import InMemoryExporter, PostgresExporter, Tracer
@@ -32,6 +36,9 @@ class AppDeps:
     upload_ingest: Any = None
     w1_requests: Any = field(default_factory=lambda: W1Requests())
     tracer: Tracer | None = None
+    w3: Any = None
+    w3_store: Any = None
+    w3_requests: Any = None
 
 
 class W1Requests:
@@ -67,6 +74,52 @@ class W1Requests:
                     if r['user_id']==user and r['thread_id']==thread: r['running']=False
 
 
+class W3Requests:
+    """Persist replay-safe doctor actions using the W3 request table."""
+    def __init__(self, pool=None):
+        self.pool, self.rows, self.lock = pool, {}, RLock()
+
+    def claim(self, doctor_id, key, fingerprint, draft_id):
+        if self.pool:
+            with self.pool.connection() as conn:
+                row = conn.execute(
+                    """INSERT INTO w3_request (doctor_id, idempotency_key, fingerprint, draft_id)
+                       VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING
+                       RETURNING doctor_id, idempotency_key, fingerprint, draft_id, status, response""",
+                    (doctor_id, key, fingerprint, draft_id),
+                ).fetchone()
+                if row:
+                    return dict(row), True
+                existing = conn.execute(
+                    """SELECT doctor_id, idempotency_key, fingerprint, draft_id, status, response
+                         FROM w3_request WHERE doctor_id = %s AND idempotency_key = %s""",
+                    (doctor_id, key),
+                ).fetchone()
+                return dict(existing), False
+        with self.lock:
+            identity = (doctor_id, key)
+            existing = self.rows.get(identity)
+            if existing is not None:
+                return dict(existing), False
+            row = {"doctor_id": doctor_id, "idempotency_key": key, "fingerprint": fingerprint,
+                   "draft_id": str(draft_id), "status": "running", "response": None}
+            self.rows[identity] = row
+            return dict(row), True
+
+    def complete(self, doctor_id, key, response):
+        if self.pool:
+            with self.pool.connection() as conn:
+                conn.execute(
+                    """UPDATE w3_request SET status = 'complete', response = %s::jsonb
+                         WHERE doctor_id = %s AND idempotency_key = %s""",
+                    (json.dumps(response, ensure_ascii=False), doctor_id, key),
+                )
+            return
+        with self.lock:
+            row = self.rows[(doctor_id, key)]
+            row.update(status="complete", response=response)
+
+
 def build_postgres_deps() -> AppDeps:
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
@@ -94,6 +147,13 @@ def build_postgres_deps() -> AppDeps:
         w2 = compile_w2(OpenRouterLLM(workflow="w2", tracer=tracer),
                         PostgresRecordsTools(conn, PostgresRetriever(conn, embedder), tracer),
                         tracer=tracer)
+        w3_store = PostgresW3Store(conn)
+        stock_dir = Path(os.environ.get(
+            "W3_STOCK_DIR", ROOT / "data" / "synthetic" / "out" / "w3" / "stock"
+        ))
+        w3_stock = ClinicCsvStockAdapter(stock_dir)
+        w3 = compile_w3(OpenRouterLLM(workflow="w3", tracer=tracer),
+                        w3_store, w3_stock, saver, tracer)
 
         def audit(patient_id):
             from psycopg.rows import dict_row
@@ -108,7 +168,8 @@ def build_postgres_deps() -> AppDeps:
                 ingest_one(worker_conn, manifest, embedder)
 
         return AppDeps(w1, w2, audit, close=stack.close, store=store, embedder=embedder,
-                       upload_ingest=upload_ingest, w1_requests=W1Requests(pool), tracer=tracer)
+                       upload_ingest=upload_ingest, w1_requests=W1Requests(pool), tracer=tracer,
+                       w3=w3, w3_store=w3_store, w3_requests=W3Requests(pool))
     except BaseException:
         stack.close()
         raise
@@ -125,7 +186,26 @@ def build_test_deps() -> AppDeps:
     store.tracer = tracer
     tools = InMemoryRecordsTools(InMemoryRetriever([], HashEmbedder()), tracer=tracer)
     llm.tracer = tracer
+    class TestStock:
+        def molecule_for(self, name):
+            return name.lower() if name else None
+
+        def check(self, _clinic_id, _medicine):
+            return {"medicine_id": None, "status": "in_stock", "as_of": "2026-11-02",
+                    "alternatives": []}
+
+    w3_store = InMemoryW3Store({
+        "ENC-W3-TEST": {"encounter_id": "ENC-W3-TEST", "patient_id": "PT-W3-TEST",
+                        "doctor_id": "DR-W3-TEST", "clinic_id": "TEST-CLINIC"},
+    })
+    w3_llm = ScriptedLLM({"w3.draft_soap": {
+        "S": "Follow-up visit.", "O": "", "A": "", "P": "Continue metformin 500 mg daily.",
+        "medicines": [{"name": "metformin", "molecule": "metformin", "dose": "500 mg",
+                       "frequency": "daily", "quote": "metformin 500 mg daily"}],
+    }}, tracer=tracer)
     return AppDeps(compile_w1(llm, store, InMemorySaver(), tracer),
                    compile_w2(ScriptedLLM({}, tracer=tracer), tools, tracer=tracer),
                    lambda patient: [e for e in tools.events + store.events if e["patient_id"] == patient],
-                   w1_llm=llm, store=store, tracer=tracer)
+                   w1_llm=llm, store=store, tracer=tracer,
+                   w3=compile_w3(w3_llm, w3_store, TestStock(), InMemorySaver(), tracer),
+                   w3_store=w3_store, w3_requests=W3Requests())

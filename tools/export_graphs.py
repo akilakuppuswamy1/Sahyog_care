@@ -14,6 +14,9 @@ from services.agent.store import InMemoryStore
 from services.agent.w1.graph import compile_w1
 from services.agent.w2.graph import compile_w2
 from services.agent.w2.tools import InMemoryRecordsTools
+from services.agent.w3.graph import compile_w3
+from services.agent.w3.stock import ApiStockAdapter
+from services.agent.w3.store import InMemoryW3Store
 from services.records.embed import HashEmbedder
 from services.records.retrieve import InMemoryRetriever
 
@@ -25,6 +28,7 @@ def export(output_dir: Path) -> None:
         "w1": compile_w1(ScriptedLLM({}), InMemoryStore.demo(), InMemorySaver()),
         "w2": compile_w2(ScriptedLLM({}), InMemoryRecordsTools(
             InMemoryRetriever([], HashEmbedder())), InMemorySaver()),
+        "w3": compile_w3(ScriptedLLM({}), InMemoryW3Store({}), ApiStockAdapter(), InMemorySaver()),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     for name, graph in graphs.items():

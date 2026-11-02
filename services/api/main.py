@@ -7,12 +7,14 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, UploadFile, File
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
 
 from services.api import frontdesk as fd
 from services.common.timefmt import ist
@@ -20,6 +22,7 @@ from services.api.auth import current_user
 from services.api.deps import build_postgres_deps
 from services.api.ratelimit import RateLimiter
 from services.api.ops import build_ops_summary, build_trace_tree
+from services.agent.w3.stock import NotConfigured
 
 UPLOAD_ROOT = Path(__file__).resolve().parents[2] / "data" / "uploads"
 
@@ -46,6 +49,16 @@ class Resume(StrictRequest):
 class Ask(StrictRequest):
     question: str = Field(min_length=1, max_length=20000)
     subject_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class ScribeDraft(StrictRequest):
+    encounter_id: str = Field(min_length=1, max_length=128)
+    transcript: str = Field(min_length=1, max_length=20000)
+
+
+class ScribeReview(StrictRequest):
+    action: Literal["approve", "edit", "reject"]
+    edits: list[dict] = Field(default_factory=list)
 
 
 def w1_response(thread, out):
@@ -109,7 +122,7 @@ def create_app(deps_factory=build_postgres_deps):
                     http_span.set_status("error") if tracer else None
                 elif getattr(request.state, "degraded", False):
                     http_span.set_status("degraded") if tracer else None
-                if request.url.path.startswith(("/w1/", "/w2/")):
+                if request.url.path.startswith(("/w1/", "/w2/", "/scribe/api/")):
                     response.headers["X-Trace-Id"] = request.state.trace_id
                     if getattr(request.state, "thread_id", None):
                         response.headers["X-Thread-Id"] = request.state.thread_id
@@ -142,6 +155,154 @@ def create_app(deps_factory=build_postgres_deps):
     @app.get("/ops")
     def ops_page():
         return static_html("ops.html")
+
+    @app.get("/scribe")
+    def scribe_page():
+        return static_html("scribe.html")
+
+    def scribe_idempotency(request, user, payload, draft_id):
+        key = write_key(request)
+        fingerprint = hashlib.sha256(json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        deps = request.app.state.deps
+        record, claimed = deps.w3_requests.claim(user, key, fingerprint, draft_id)
+        if record["fingerprint"] != fingerprint:
+            raise HTTPException(409, "Idempotency key belongs to another action")
+        if not claimed:
+            if record["status"] == "complete":
+                return key, record, record["response"]
+            raise HTTPException(409, "An action with this Idempotency-Key is still in progress")
+        return key, record, None
+
+    def scribe_draft(deps, draft_id, doctor_id):
+        draft = deps.w3_store.get_draft(draft_id, doctor_id)
+        if draft is None:
+            raise HTTPException(404, "Draft not found")
+        return draft
+
+    @app.get("/scribe/api/fixtures")
+    def scribe_fixtures(request: Request, user: str = Depends(current_user)):
+        if not user or request.state.role != "doctor":
+            raise HTTPException(403, "Role not permitted")
+        fixtures = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "w3" / "dictations.jsonl"
+        return [
+            {"id": case["id"], "transcript": case["transcript"]}
+            for case in (json.loads(line) for line in fixtures.read_text(encoding="utf-8").splitlines())
+            if case.get("transcript")
+        ]
+
+    @app.post("/scribe/api/drafts")
+    def create_scribe_draft(body: ScribeDraft, request: Request,
+                            user: str = Depends(current_user)):
+        if not user or request.state.role != "doctor":
+            raise HTTPException(403, "Role not permitted")
+        limit(request, user, "read")
+        deps = request.app.state.deps
+        draft_id = str(uuid4())
+        payload = {"operation": "create", "encounter_id": body.encounter_id,
+                   "transcript": body.transcript}
+        key, record, replay = scribe_idempotency(request, user, payload, draft_id)
+        if replay is not None:
+            return replay
+        draft_id = str(record["draft_id"])
+        request.state.thread_id = draft_id
+        try:
+            with deps.lock, trace_span(deps, "node", "scribe_turn", "w3", request.state.trace_id):
+                out = deps.w3.invoke(
+                    {"draft_id": draft_id, "encounter_id": body.encounter_id,
+                     "transcript": body.transcript, "doctor_id": user,
+                     "trace_id": request.state.trace_id},
+                    {"configurable": {"thread_id": draft_id}},
+                )
+        except LookupError as exc:
+            raise HTTPException(404, "Encounter not found") from exc
+        except PermissionError as exc:
+            raise HTTPException(403, "Only the treating doctor may access this encounter") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except NotConfigured as exc:
+            raise HTTPException(503, str(exc)) from exc
+        draft = scribe_draft(deps, draft_id, user)
+        result = jsonable_encoder({"draft": draft, "flags": draft.get("flags", [])})
+        deps.w3_requests.complete(user, key, result)
+        return result
+
+    @app.get("/scribe/api/drafts")
+    def list_scribe_drafts(request: Request, status: Literal["draft", "parked"] = "draft",
+                           user: str = Depends(current_user)):
+        if not user or request.state.role != "doctor":
+            raise HTTPException(403, "Role not permitted")
+        deps = request.app.state.deps
+        with deps.lock:
+            return deps.w3_store.list_drafts(user, status)
+
+    @app.get("/scribe/api/drafts/{draft_id}")
+    def get_scribe_draft(draft_id: UUID, request: Request, user: str = Depends(current_user)):
+        if not user or request.state.role != "doctor":
+            raise HTTPException(403, "Role not permitted")
+        deps = request.app.state.deps
+        draft_id = str(draft_id)
+        with deps.lock:
+            return scribe_draft(deps, draft_id, user)
+
+    @app.post("/scribe/api/drafts/{draft_id}/review")
+    def review_scribe_draft(draft_id: UUID, body: ScribeReview, request: Request,
+                            user: str = Depends(current_user)):
+        if not user or request.state.role != "doctor":
+            raise HTTPException(403, "Role not permitted")
+        key = write_key(request)
+        limit(request, user, "read")
+        deps = request.app.state.deps
+        draft_id = str(draft_id)
+        payload = {"operation": "review", "draft_id": draft_id,
+                   "action": body.action, "edits": body.edits}
+        record, claimed = deps.w3_requests.claim(
+            user, key,
+            hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                                      separators=(",", ":")).encode("utf-8")).hexdigest(),
+            draft_id,
+        )
+        if record["fingerprint"] != hashlib.sha256(json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest():
+            raise HTTPException(409, "Idempotency key belongs to another action")
+        if not claimed:
+            if record["status"] == "complete":
+                return record["response"]
+            raise HTTPException(409, "An action with this Idempotency-Key is still in progress")
+        with deps.lock:
+            draft = scribe_draft(deps, draft_id, user)
+            if draft["status"] != "draft":
+                raise HTTPException(409, "Only an active draft can be reviewed")
+            try:
+                out = deps.w3.invoke(
+                    Command(resume={"action": body.action, "edits": body.edits}),
+                    {"configurable": {"thread_id": draft_id}},
+                )
+            except LookupError as exc:
+                raise HTTPException(404, "Draft not found") from exc
+            except PermissionError as exc:
+                raise HTTPException(403, "Only the treating doctor may review this draft") from exc
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except NotConfigured as exc:
+                raise HTTPException(503, str(exc)) from exc
+            updated = scribe_draft(deps, draft_id, user)
+            if out.get("note"):
+                note = updated.get("signed_note") or out["note"]
+                result = jsonable_encoder({
+                    "status": "signed", "draft_id": draft_id,
+                    "note_id": note["note_id"], "version": note["version"],
+                    "content_hash": note["content_hash"], "signed_note": note,
+                    "edit_history": updated.get("edit_history", []),
+                })
+            elif updated["status"] == "rejected":
+                result = {"status": "rejected", "draft_id": draft_id}
+            else:
+                result = jsonable_encoder({"draft": updated, "flags": updated.get("flags", [])})
+        deps.w3_requests.complete(user, key, result)
+        return result
 
     @app.get("/ops/api/summary")
     def ops_summary(request: Request, user: str = Depends(current_user)):

@@ -6,13 +6,12 @@ process and a shared lock. Sources: `services/api/{main,deps,auth,ratelimit}.py`
 
 ```mermaid
 flowchart TB
-    UI[Browser patient, front desk and ops UI - built] --> API
-    DC[Doctor console - planned Pro] -.-> API
+    UI[Browser patient, front desk, ops and doctor UI - built] --> API
     subgraph India[India boundary - target hosting; local demo today]
-        API[API - built: W1/W2 HTTP routes, front desk, ops, upload]
-        AUTH[Auth - built demo bearer; OIDC and booking OTP planned Pro]
+        API[API - built: W1/W2/W3 HTTP routes, front desk, ops, upload]
+        AUTH[Auth - built demo bearer roles; OIDC and booking OTP planned Pro]
         RL[Rate limiter - built per patient and IP in process]
-        GRAPH[Graph runtime - built W1/W2 LangGraph; W3 planned Pro]
+        GRAPH[Graph runtime - built W1/W2/W3 LangGraph]
         PG[(Postgres 16 + pgvector + W1 checkpointer + trace_span - built)]
         EMB[Local bge-m3 - built; HashEmbedder in tests]
         ING[PDF upload and background ingest - built]
@@ -20,7 +19,7 @@ flowchart TB
         AUD[Audit - built explicit writes + append-only trigger + access view]
         TRACE[Tracing - built exporter interface; Postgres in-region]
         PHI[Presidio and re-identification - planned Pro]
-        QUEUE[Durable ingest and W3 review queue - planned Pro]
+        QUEUE[Durable ingest - built; W3 timeout scheduling - planned Pro]
         REDIS[Gateway and Redis distributed limits - planned Architect]
         CRYPTO[Encryption at rest and DB least-privilege roles - planned Architect]
         SMS[SMS gateway delivery - planned Pro]

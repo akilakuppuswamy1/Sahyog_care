@@ -14,7 +14,7 @@ to the page it came from.
 - **Measured, not asserted** — golden evaluation sets written before the code; results in `evals/report.md`, generated
   from saved runs.
 
-**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet; W3 scribe graph, grounding, stock adapters, signed-note persistence, and a schedulable timeout command. W3 doctor console/API and timeout-job scheduling are not wired. Other gaps: Presidio egress replay, async ingest queue, 80-case evals with a calibrated judge, Architect tier.
+**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet; W3 scribe graph/API/doctor console, grounding, stock adapters, signed-note persistence, 40-case eval set, and a schedulable timeout command. W3 timeout-job scheduling is not wired. Other gaps: Presidio egress replay, async ingest queue, 80-case evals with a calibrated judge, Architect tier.
 
 ## Known gaps
 
@@ -68,6 +68,7 @@ pytest
 
 - Front desk: apply `infra/db/005_frontdesk.sql`, open `/?view=frontdesk` (the staff shell; `/frontdesk` also serves it with a staff bearer header), and use a staff ID (`Bearer demo-staff-FD01`, demo auth only) to review hand-offs and override bookings.
 - Upload: in **My records**, choose **Upload a report** (text PDF, up to 10 MB); the status list polls every two seconds until indexed or failed. Uploads are stored in git-ignored `data/uploads/`.
+- Scribe: generate the synthetic clinic stock CSVs with `python data/synthetic/generate_stock.py` (large outputs are ignored by Git and Docker), apply migrations with `python tools/migrate.py`, then open `/scribe`. Compose mounts that host directory read-only; set `W3_STOCK_DIR` when using a different location. Sign in with a doctor ID and use `Bearer demo-doc-<DOCTOR_ID>` demo authentication. The API requires the treating doctor's encounter ID; drafts remain unsigned until approved.
 
 
 After the database setup and W2 fixture ingestion below, run locally from the activated venv:
@@ -99,9 +100,11 @@ sets the escalation review SLA (defaults to the existing front-desk SLA setting)
 
 Run `python tools/build_cost_sheet.py` to regenerate [docs/cost-sheet.md](docs/cost-sheet.md) from
 saved evaluation JSON; it does not call a model or run evals. Set `PRICE_IN_PER_MTOK_W1`,
-`PRICE_OUT_PER_MTOK_W1`, `PRICE_IN_PER_MTOK_W2`, `PRICE_OUT_PER_MTOK_W2`, and `PRICE_DATE` to
+`PRICE_OUT_PER_MTOK_W1`, `PRICE_IN_PER_MTOK_W2`, `PRICE_OUT_PER_MTOK_W2`,
+`PRICE_IN_PER_MTOK_W3`, `PRICE_OUT_PER_MTOK_W3`, and `PRICE_DATE` to
 populate estimates. Unset prices remain formulas marked “to fill.” The per-consultation example is
-an explicit one-triage-turn plus one-record-answer scenario, not an observed workflow mix.
+an explicit one-triage-turn plus one-record-answer scenario, not an observed workflow mix; W3 is
+reported separately per scribe draft.
 
 Trace retention is 30 days. Schedule `SELECT purge_trace_spans();` on the local database (for
 example, daily); the migration creates the purge function but does not install a scheduler. Traces
@@ -158,3 +161,11 @@ python -m evals.run_w2                                           # 30 W2 cases t
 python -m services.agent.w2.cli --as PT-W2-0001                  # ask Priya's records
 python -m services.agent.w2.cli --as PT-W2-0001 --for PT-W2-0002 # Priya as caregiver for her mother
 ```
+## W3 Clinical scribe (Pro)
+```powershell
+python data/synthetic/generate_stock.py
+python tools/migrate.py
+python -m evals.run_w3       # 40 W3 cases; real graph and OpenRouter, writes evals/runs/w3-*.json/.md
+```
+The W3 eval makes model calls and is not part of pytest. Set `W3_STOCK_DIR` if clinic CSVs are stored
+outside `data/synthetic/out/w3/stock`; the API loads only the selected clinic's inventory file.

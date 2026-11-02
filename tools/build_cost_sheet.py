@@ -14,7 +14,7 @@ def _latest_runs(runs_dir: Path) -> dict[str, tuple[Path, dict]]:
     latest: dict[str, tuple[Path, dict]] = {}
     for path in sorted(runs_dir.glob("*.json")):
         workflow = path.name.split("-", 1)[0]
-        if workflow not in ("w1", "w2"):
+        if workflow not in ("w1", "w2", "w3"):
             continue
         run = json.loads(path.read_text(encoding="utf-8"))
         if run.get("meta", {}).get("mode") == "rules":
@@ -48,6 +48,9 @@ def _run_values(workflow: str, pair: tuple[Path, dict] | None) -> dict | None:
     if workflow == "w1":
         units = run.get("metrics", {}).get("cases")
         unit_name = "triage turns"
+    elif workflow == "w3":
+        units = run.get("metrics", {}).get("cases")
+        unit_name = "scribe drafts"
     else:
         units = sum(prediction.get("route") in {"answer", "answer_degraded"}
                     for prediction in run.get("predictions", []))
@@ -71,9 +74,12 @@ def build_cost_sheet(runs_dir: Path) -> str:
     latest = _latest_runs(runs_dir)
     w1 = _run_values("w1", latest.get("w1"))
     w2 = _run_values("w2", latest.get("w2"))
-    p_in = {"w1": _price("PRICE_IN_PER_MTOK_W1"), "w2": _price("PRICE_IN_PER_MTOK_W2")}
-    p_out = {"w1": _price("PRICE_OUT_PER_MTOK_W1"), "w2": _price("PRICE_OUT_PER_MTOK_W2")}
-    values = {"w1": w1, "w2": w2}
+    w3 = _run_values("w3", latest.get("w3"))
+    p_in = {workflow: _price(f"PRICE_IN_PER_MTOK_{workflow.upper()}")
+            for workflow in ("w1", "w2", "w3")}
+    p_out = {workflow: _price(f"PRICE_OUT_PER_MTOK_{workflow.upper()}")
+             for workflow in ("w1", "w2", "w3")}
+    values = {"w1": w1, "w2": w2, "w3": w3}
     unit_costs: dict[str, float] = {}
     lines = [
         "# Cost worksheet (Pro, deck p.34)",
@@ -83,13 +89,14 @@ def build_cost_sheet(runs_dir: Path) -> str:
         f"Price list date: {os.environ.get('PRICE_DATE') or 'to fill'}",
         "",
         "Prices are read only from `PRICE_IN_PER_MTOK_W1`, `PRICE_OUT_PER_MTOK_W1`, "
-        "`PRICE_IN_PER_MTOK_W2`, and `PRICE_OUT_PER_MTOK_W2`; figures are in the provider's price currency.",
+        "`PRICE_IN_PER_MTOK_W2`, `PRICE_OUT_PER_MTOK_W2`, `PRICE_IN_PER_MTOK_W3`, and "
+        "`PRICE_OUT_PER_MTOK_W3`; figures are in the provider's price currency.",
         "Unset prices remain formulas marked **to fill**; no price is embedded in this worksheet.",
         "",
         "| Line | Measured source and run id | Model | Calls | Measured input / output tokens | Unit count | Cost formula / measured unit cost |",
         "|---|---|---|---:|---:|---:|---|",
     ]
-    for workflow, label in (("w1", "Triage"), ("w2", "Record answers")):
+    for workflow, label in (("w1", "Triage"), ("w2", "Record answers"), ("w3", "Scribe")):
         run = values[workflow]
         if run is None:
             lines.append(f"| {label} | not measured (saved run JSON with token totals and denominator required) | "
@@ -114,7 +121,6 @@ def build_cost_sheet(runs_dir: Path) -> str:
             f"{run['tokens_in']} / {run['tokens_out']} | {run['units']} {run['unit_name']} | {formula} |"
         )
     lines += [
-        "| Scribe | W3 | not built yet | — | not measured | — | not built yet |",
         "| Speech-to-text | — | not built | — | not measured | — | not built |",
         "| Embeddings | Local BAAI/bge-m3 | local model | — | not applicable | — | no API cost; local compute/storage excluded |",
         "",
@@ -137,6 +143,8 @@ def build_cost_sheet(runs_dir: Path) -> str:
                      f"W1 uses `{w1['model']}` (run {w1['run_id']}). W2 is routed to the smaller model.")
     else:
         lines.append("- Model routing: W2 is routed to the smaller model; saved run ids/models are to fill.")
+    if w3:
+        lines.append(f"- Scribe model: `{w3['model']}` (run {w3['run_id']}); W3 cost is measured per scribe draft.")
     lines += [
         "",
         "Token totals are run-level measured values divided by the recorded evaluation denominator; they are "

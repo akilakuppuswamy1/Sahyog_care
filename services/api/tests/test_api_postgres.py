@@ -30,12 +30,31 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
             monkeypatch.setenv("SAHYOG_DEMO_AUTH", "1")
             # Exercise the actual pool factory, with no dotenv, model, or embedding network access.
             monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: None)
-            llm = ScriptedLLM({"w1.red_flag_net": NET_CLEAR, "w1.match": MATCH_ORTHO})
+            llm = ScriptedLLM({
+                "w1.red_flag_net": NET_CLEAR, "w1.match": MATCH_ORTHO,
+                "w3.draft_soap": {
+                    "S": "Follow-up visit.", "O": "", "A": "", "P": "Continue metformin 500 mg daily.",
+                    "medicines": [{"name": "metformin", "molecule": "metformin", "dose": "500 mg",
+                                   "frequency": "daily", "quote": "metformin 500 mg daily"}],
+                },
+            })
             def fake_llm(**kwargs):
                 llm.tracer = kwargs.get("tracer")
                 return llm
             monkeypatch.setattr(deps, "OpenRouterLLM", fake_llm)
             monkeypatch.setattr(deps, "BgeM3Embedder", HashEmbedder)
+            class TestStock:
+                def __init__(self, _directory):
+                    pass
+
+                def molecule_for(self, name):
+                    return name.lower() if name else None
+
+                def check(self, _clinic_id, _medicine):
+                    return {"medicine_id": None, "status": "in_stock", "as_of": "2026-11-02",
+                            "alternatives": []}
+
+            monkeypatch.setattr(deps, "ClinicCsvStockAdapter", TestStock)
             with psycopg.connect(url, autocommit=True) as seed:
                 sql = (Path(__file__).resolve().parents[3] / "infra/db/001_schema.sql").read_text()
                 if not seed.execute("SELECT 1 FROM pg_extension WHERE extname='vector'").fetchone():
@@ -43,6 +62,8 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                 seed.execute(re.sub(r"^\s*(BEGIN|COMMIT);\s*$", "", sql, flags=re.M))
                 seed.execute((Path(__file__).resolve().parents[3] / "infra/db/006_w1_requests.sql").read_text())
                 seed.execute((Path(__file__).resolve().parents[3] / "infra/db/007_tracing.sql").read_text())
+                for migration in ("008_w3_drafts.sql", "009_w3_draft_version_retry.sql", "010_w3_api.sql"):
+                    seed.execute((Path(__file__).resolve().parents[3] / "infra/db" / migration).read_text())
                 seed.execute("""
                     INSERT INTO clinic VALUES ('C1','Test Clinic','Pune','hospital','Pune','08:00','20:00',true,true);
                     INSERT INTO specialty (specialty_id,name) VALUES ('SP07','Orthopaedics');
@@ -50,6 +71,8 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                     INSERT INTO patient (patient_id,name,dob) VALUES ('PT1','Test Patient','1992-01-01');
                     INSERT INTO slot (slot_id,doctor_id,clinic_id,starts_at)
                         VALUES ('S1','D1','C1',now() + interval '7 days');
+                    INSERT INTO encounter (encounter_id,patient_id,doctor_id,clinic_id,started_at)
+                        VALUES ('E1','PT1','D1','C1',now());
                 """)
             headers = {"Authorization": "Bearer demo-PT1", "Idempotency-Key": uuid4().hex}
             with TestClient(create_app(deps.build_postgres_deps)) as client:
@@ -66,8 +89,26 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                                  json={"question": "W2_PRIVATE_TEXT_MARKER_671 what medicine should I take?"})
                 assert w2.status_code == 200, w2.text
                 w2_trace = w2.json()["trace_id"]
+                scribe_key = uuid4().hex
+                scribe_headers = {"Authorization": "Bearer demo-doc-D1", "Idempotency-Key": scribe_key}
+                created = client.post("/scribe/api/drafts", headers=scribe_headers, json={
+                    "encounter_id": "E1", "transcript": "Continue metformin 500 mg daily.",
+                })
+                assert created.status_code == 200, created.text
+                draft_id = created.json()["draft"]["draft_id"]
+                signed_key = uuid4().hex
+                signed_headers = {"Authorization": "Bearer demo-doc-D1", "Idempotency-Key": signed_key}
+                signed = client.post(f"/scribe/api/drafts/{draft_id}/review", headers=signed_headers,
+                                     json={"action": "approve"})
+                assert signed.status_code == 200, signed.text
+                signed_note = signed.json()
+                assert len(signed_note["content_hash"]) == 64
+                assert client.app.state.deps.w3_store.get_draft(draft_id, "D1")["status"] == "signed"
                 with pool.connection() as c:
                     assert c.execute("SELECT count(*) AS n FROM w1_request").fetchone()['n'] == 1
+                    assert c.execute("SELECT count(*) AS n FROM w3_request").fetchone()["n"] == 2
+                    assert c.execute("SELECT initial_soap_json FROM note_draft WHERE draft_id=%s",
+                                     (draft_id,)).fetchone()["initial_soap_json"]["P"] == "Continue metformin 500 mg daily."
                     for trace_id, forbidden in (
                         (thread, ("Knee pain climbing stairs for months", "PT1")),
                         (w2_trace, ("W2_PRIVATE_TEXT_MARKER_671", "PT1")),
@@ -97,6 +138,15 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                 assert replay.status_code == 200, replay.text
                 assert replay.json()['thread_id'] == thread
                 assert replay.json()['booking_id']
+                replayed_scribe = restarted.post("/scribe/api/drafts", headers=scribe_headers, json={
+                    "encounter_id": "E1", "transcript": "Continue metformin 500 mg daily.",
+                })
+                assert replayed_scribe.status_code == 200
+                assert replayed_scribe.json()["draft"]["draft_id"] == draft_id
+                replayed_sign = restarted.post(f"/scribe/api/drafts/{draft_id}/review",
+                                               headers=signed_headers, json={"action": "approve"})
+                assert replayed_sign.status_code == 200
+                assert replayed_sign.json()["note_id"] == signed_note["note_id"]
             assert pool.closed and store_conn.closed
         finally:
             admin.execute(f"DROP SCHEMA {schema} CASCADE")

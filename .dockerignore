@@ -3,6 +3,7 @@
 .venv
 data/raw
 data/clean
+data/synthetic/out/
 evals/runs
 .git
 **/__pycache__

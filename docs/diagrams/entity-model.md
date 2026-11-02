@@ -1,11 +1,12 @@
-# Entity model — migrations 001–009
+# Entity model — migrations 001–010
 
-Derived from the checked-in SQL, including all 20 persistent application tables and columns.
+Derived from the checked-in SQL, including all 21 persistent application tables and columns.
 Migration 002 uses temporary staging tables `_clinic` and `_spec` for loading; these are not persistent entities.
 Migration 003 replaces a trigger function; 004 adds document/chunk columns and indexes; 005–006 add three tables;
-007 adds the PHI-free `trace_span` table and audit trace-context trigger; 008 adds W3 drafts/edit history and 009
-allows rejected/parked drafts to be retried without consuming a signed-note version.
-LangGraph creates its own checkpoint tables through `PostgresSaver.setup()`; those are outside migrations 001–009.
+007 adds the PHI-free `trace_span` table and audit trace-context trigger; 008 adds W3 drafts/edit history, 009
+allows rejected/parked drafts to be retried without consuming a signed-note version, and 010 persists W3
+idempotency records and the initial draft snapshot.
+LangGraph creates its own checkpoint tables through `PostgresSaver.setup()`; those are outside migrations 001–010.
 
 ```mermaid
 erDiagram
@@ -106,6 +107,7 @@ erDiagram
         timestamptz created_at
         timestamptz review_started_at
         uuid signed_note_id FK
+        jsonb initial_soap_json
     }
     note_edit {
         uuid edit_id PK
@@ -192,6 +194,15 @@ erDiagram
         boolean running
         timestamptz created_at
     }
+    w3_request {
+        text doctor_id PK, FK
+        text idempotency_key PK
+        text fingerprint
+        uuid draft_id
+        text status
+        jsonb response
+        timestamptz created_at
+    }
     trace_span {
         text trace_id
         text span_id PK
@@ -225,6 +236,7 @@ erDiagram
     clinical_note |o--o{ clinical_note : "supersedes nullable"
     encounter ||--o{ note_draft : "encounter_id"
     doctor ||--o{ note_draft : "doctor_id"
+    doctor ||--o{ w3_request : "doctor_id"
     note_draft |o--o| clinical_note : "signed_note_id nullable"
     note_draft ||--o{ note_edit : "draft_id"
     doctor ||--o{ note_edit : "edited_by"
@@ -244,6 +256,7 @@ erDiagram
 - Audit update/delete are refused; `who_saw_record` projects patient-associated read events. Application code must still write the events. Privileged owners can bypass triggers; TRUNCATE is not covered.
 - Migration 005 separates handling and replay state from immutable audit rows; 006 uses `(user_id,idempotency_key)` PK and unique `thread_id`. Neither table declares an FK from user/staff identifiers to patient.
 - Migration 007 stores spans without prompt, question, symptom or patient text/IDs; audit `trace_id` is the correlation path. `purge_trace_spans()` removes rows older than 30 days and must be scheduled by operations.
+- Migration 010 stores W3 idempotency fingerprints/results by doctor and key; `draft_id` intentionally has no FK because a create request is reserved before the graph persists its draft.
 - No FK exists for `prescription.medicine_id` (stock key is composite), audit patient/actor IDs, consent grantee, or handling staff. These are deliberately not drawn as relationships.
 
-Sources: [001](../../infra/db/001_schema.sql), [002](../../infra/db/002_load_generated.sql), [003](../../infra/db/003_fix_forbid_change_errcode.sql), [004](../../infra/db/004_w2_records.sql), [005](../../infra/db/005_frontdesk.sql), [006](../../infra/db/006_w1_requests.sql), [007](../../infra/db/007_tracing.sql), [008](../../infra/db/008_w3_drafts.sql), [009](../../infra/db/009_w3_draft_version_retry.sql).
+Sources: [001](../../infra/db/001_schema.sql), [002](../../infra/db/002_load_generated.sql), [003](../../infra/db/003_fix_forbid_change_errcode.sql), [004](../../infra/db/004_w2_records.sql), [005](../../infra/db/005_frontdesk.sql), [006](../../infra/db/006_w1_requests.sql), [007](../../infra/db/007_tracing.sql), [008](../../infra/db/008_w3_drafts.sql), [009](../../infra/db/009_w3_draft_version_retry.sql), [010](../../infra/db/010_w3_api.sql).

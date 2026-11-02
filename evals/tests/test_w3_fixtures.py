@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "evals" / "fixtures" / "w3" / "dictations.jsonl"
+EVAL_SET = ROOT / "evals" / "sets" / "w3_scribe.jsonl"
 
 
 def load_fixtures() -> list[dict]:
@@ -34,6 +35,25 @@ def test_w3_fixtures_cover_required_hard_cases_and_no_direct_identifiers():
     assert tags["dose_correction"] >= 1
 
     content = FIXTURES.read_text(encoding="utf-8")
+    assert not re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", content)
+    assert not re.search(r"(?<!\w)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\w)", content)
+    assert not re.search(r"(?im)^\s*(?:patient\s+)?(?:name|phone|mobile|email)\s*:", content)
+
+
+def test_w3_eval_set_has_40_complete_gold_cases_and_required_tags():
+    cases = [json.loads(line) for line in EVAL_SET.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(cases) == 40
+    assert len({case["id"] for case in cases}) == 40
+    required = {"overlap", "brand_generic", "class_only", "hinglish",
+                "dose_correction", "out_of_stock"}
+    tags = {tag for case in cases for tag in case["tags"]}
+    assert required <= tags
+    for case in cases:
+        assert case["transcript"]
+        assert set(case["gold_soap"]) == {"S", "O", "A", "P"}
+        assert isinstance(case["gold_medicines"], list)
+        assert case["added_by"] and case["version"] == 1
+    content = EVAL_SET.read_text(encoding="utf-8")
     assert not re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", content)
     assert not re.search(r"(?<!\w)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\w)", content)
     assert not re.search(r"(?im)^\s*(?:patient\s+)?(?:name|phone|mobile|email)\s*:", content)
