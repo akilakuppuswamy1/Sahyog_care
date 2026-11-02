@@ -64,6 +64,7 @@ class W2State(TypedDict, total=False):
     citations: list[str]       # chunk ids
     verified: bool
     reply: str
+    degraded: bool
 
 
 def scope_guard(s: W2State, tools: RecordsTools) -> W2State:
@@ -122,6 +123,22 @@ def _label(i: int) -> str:
     return f"E{i}"
 
 
+def _degraded_answer(s: W2State) -> W2State:
+    relevant = [h for h in s["hits"] if h.get("patient_id") == s["subject_id"] and
+                (h["vscore"] >= V_MIN or coverage(s["question"], h["text"]) > COVERAGE_MIN)]
+    if not relevant:
+        return {"route": "not_found", "reply": NOT_FOUND, "citations": [], "verified": False}
+    lines = [line for h in relevant for line in h["text"].splitlines()[1:] if line.strip()]
+    text = VERIFY_FALLBACK
+    if lines:
+        text += "\n" + "\n".join(f"- {line}" for line in lines)
+    sources = sorted({(h.get("title") or "Report", h.get("report_date") or "", h["page"])
+                      for h in relevant})
+    source_text = "; ".join(f"{title}, {date}, page {page}" for title, date, page in sources)
+    return {"route": "answer_degraded", "reply": f"{text}\n\nSources: {source_text}",
+            "citations": [h["chunk_id"] for h in relevant], "verified": False, "degraded": True}
+
+
 def answer(s: W2State, llm: JsonLLM) -> W2State:
     hits = s["hits"]
     excerpts = "\n\n".join(f"[{_label(i)}] ({h.get('title') or 'Report'}, {h.get('report_date') or ''}, page {h['page']})\n"
@@ -129,7 +146,9 @@ def answer(s: W2State, llm: JsonLLM) -> W2State:
     try:
         out = llm.complete_json(ANSWER_SYSTEM, f"Question: {s['question']}\n\nExcerpts:\n{excerpts}",
                                 purpose="w2.answer", trace_id=s["trace_id"])
-    except (ModelError, ValueError):
+    except (ModelError, TimeoutError):
+        return _degraded_answer(s)
+    except ValueError:
         return {"route": "not_found", "reply": NOT_FOUND, "citations": []}
     if out.get("insufficient") is True:
         return {"route": "not_found", "reply": NOT_FOUND, "citations": []}

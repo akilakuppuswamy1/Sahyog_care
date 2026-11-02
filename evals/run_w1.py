@@ -44,10 +44,12 @@ def load_env() -> None:
         pass
 
 
-def predict_graph(graph, case) -> dict:
+def predict_graph(graph, case, llm) -> dict:
     cfg = {"configurable": {"thread_id": f"eval-{case['id']}-{uuid.uuid4().hex[:6]}"}}
+    trace_id = cfg["configurable"]["thread_id"]
     t = time.perf_counter()
-    out = graph.invoke({"text": case["input"], "age": case["age"], "patient_id": "PT-EVAL"}, cfg)
+    out = graph.invoke({"text": case["input"], "age": case["age"], "patient_id": "PT-EVAL",
+                        "trace_id": trace_id}, cfg)
     latency = time.perf_counter() - t
     intr = out.get("__interrupt__") or []
     pause = intr[0].value if intr else None
@@ -60,22 +62,34 @@ def predict_graph(graph, case) -> dict:
     else:
         route = out.get("route") or "unknown"
     text_shown = " ".join(filter(None, [out.get("reply"), (pause or {}).get("question")]))
+    calls = [r for r in llm.usage.call_records if r.get("trace_id") == trace_id]
+    selected = [r for r in calls if r.get("selected")]
+    purpose = "w1.red_flag_net" if out.get("red_flags") else "w1.match"
     return dict(red_flag=bool(out.get("red_flags")), flags=out.get("red_flags", []), route=route,
                 specialty=out.get("specialty") if route == "book" else None, alternative=out.get("alternative"),
                 confidence=out.get("confidence"), latency_s=round(latency, 3),
-                offered_slots=len((pause or {}).get("options", [])), text_shown=text_shown)
+                offered_slots=len((pause or {}).get("options", [])), text_shown=text_shown,
+                degraded=bool(out.get("degraded", False)), served_by=_served_by(selected, calls, purpose))
+
+
+def _served_by(selected: list[dict], calls: list[dict], purpose: str) -> str:
+    relevant = [call for call in selected if call.get("purpose") == purpose]
+    served_by = relevant[0]["served_by"] if relevant else None
+    return served_by or ("unavailable" if calls else "none")
 
 
 def predict_rules(case) -> dict:
     r = redflags.evaluate(case["input"], case["age"])
     return dict(red_flag=r.red_flag, flags=list(r.fired), route=r.route or "not_evaluated", specialty=None,
-                latency_s=0.0, offered_slots=0, text_shown="")
+                latency_s=0.0, offered_slots=0, text_shown="", degraded=False, served_by="none")
 
 
 def score(cases, preds, rules_only: bool) -> dict:
     pos = [(c, p) for c, p in zip(cases, preds) if c["expect"]["red_flag"]]
     neg = [(c, p) for c, p in zip(cases, preds) if not c["expect"]["red_flag"]]
     m = {"cases": len(cases),
+         "fallback_rate": round(sum(p.get("served_by") in {"hedge", "fallback"} for p in preds) / len(preds), 3),
+         "degraded_rate": round(sum(bool(p.get("degraded")) for p in preds) / len(preds), 3),
          "red_flag_recall": sum(p["red_flag"] for _, p in pos) / len(pos),
          "red_flag_false_alarms": sum(p["red_flag"] for _, p in neg),
          "red_flag_route_correct": sum(p["route"] == c["expect"]["route"] for c, p in pos) / len(pos)}
@@ -152,11 +166,12 @@ def main() -> None:
         graph = compile_w1(llm, EvalStore(), InMemorySaver())
         preds = []
         for c in cases:
-            preds.append(predict_graph(graph, c))
+            preds.append(predict_graph(graph, c, llm))
             print(f"{c['id']}: {preds[-1]['route']:15} {preds[-1].get('specialty') or ''} {preds[-1]['latency_s']}s")
         meta.update(model=llm.model, prompt_version=PROMPT_VERSION,
                     tokens={"calls": llm.usage.calls, "prompt": llm.usage.prompt_tokens,
-                            "completion": llm.usage.completion_tokens, "by_purpose": llm.usage.by_purpose})
+                            "completion": llm.usage.completion_tokens, "by_purpose": llm.usage.by_purpose},
+                    model_calls=llm.usage.call_records)
     m = score(cases, preds, a.rules_only)
     RUNS.mkdir(parents=True, exist_ok=True)
     stem = RUNS / f"w1-{meta['run_id']}-{meta['mode']}"

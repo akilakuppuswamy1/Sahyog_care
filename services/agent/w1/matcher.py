@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from services.agent.llm import JsonLLM, ModelError
+from services.agent.llm import JsonLLM
 from services.agent.w1.guards import safe_patient_text
 
 PROMPT_VERSION = "w1-prompts-v1"
@@ -71,13 +71,9 @@ class Match:
 
 
 def red_flag_net(llm: JsonLLM, text: str, age: int | None, trace_id: str) -> list[str]:
-    """Returns flags to ADD. On any model failure it returns nothing: the rules already ran,
-    and a broken net must never block or clear anything."""
-    try:
-        out = llm.complete_json(RED_FLAG_NET_SYSTEM, f"Age: {age if age is not None else 'unknown'}\nMessage: {text}",
-                                purpose="w1.red_flag_net", trace_id=trace_id)
-    except (ModelError, ValueError):
-        return []
+    """Returns flags to ADD. The graph handles model failures only after preserving rule flags."""
+    out = llm.complete_json(RED_FLAG_NET_SYSTEM, f"Age: {age if age is not None else 'unknown'}\nMessage: {text}",
+                            purpose="w1.red_flag_net", trace_id=trace_id)
     if out.get("red_flag") is True:
         flag = re.sub(r"[^a-z0-9_]", "", re.sub(r"[\s-]+", "_", str(out.get("flag") or "unspecified").strip().lower()))[:40] or "unspecified"
         return [flag]
@@ -85,11 +81,8 @@ def red_flag_net(llm: JsonLLM, text: str, age: int | None, trace_id: str) -> lis
 
 
 def match_specialty(llm: JsonLLM, text: str, age: int | None, trace_id: str) -> Match:
-    try:
-        out = llm.complete_json(MATCH_SYSTEM, f"Age: {age if age is not None else 'unknown'}\nMessage: {text}",
-                                purpose="w1.match", trace_id=trace_id)
-    except (ModelError, ValueError):
-        return Match(None, None, 0.0, FALLBACK_QUESTION, valid=False)
+    out = llm.complete_json(MATCH_SYSTEM, f"Age: {age if age is not None else 'unknown'}\nMessage: {text}",
+                            purpose="w1.match", trace_id=trace_id)
     return validate_match(out)
 
 

@@ -17,8 +17,9 @@ pytest.importorskip("pypdf")
 
 from data.synthetic import generate_reports as G  # noqa: E402
 from data.synthetic.report_cohort import FIXTURE_REPORTS, PATIENTS  # noqa: E402
-from services.agent.llm import OpenRouterLLM, ScriptedLLM  # noqa: E402
+from services.agent.llm import ModelUnavailable, OpenRouterLLM, ScriptedLLM  # noqa: E402
 from services.agent.w2 import nodes as n, rules  # noqa: E402
+from services.agent.w2.graph import compile_w2  # noqa: E402
 from services.agent.w2.tools import InMemoryRecordsTools  # noqa: E402
 from services.records.embed import HashEmbedder  # noqa: E402
 from services.records.parse import chunk_document, read_pdf_pages  # noqa: E402
@@ -138,6 +139,32 @@ def test_answer_is_cited_verified_and_audited(tools):
     assert s["route"] == "answer" and s["verified"] and "11.2" in s["reply"] and "Sources:" in s["reply"]
     reads = [e for e in tools.events if e["action"] == "read" and e["resource_type"] == "document"]
     assert reads and all(e["patient_id"] == P1 and e["actor_id"] == P1 for e in reads)
+
+
+def test_model_unavailable_returns_only_scoped_verbatim_lines_and_sources(tools):
+    graph_out = compile_w2(
+        ScriptedLLM({"w2.answer": ModelUnavailable("offline")}), tools
+    ).invoke(_ask(P1, P1, "What is my haemoglobin?"))
+    assert graph_out["route"] == "answer_degraded" and graph_out["verified"] is False
+    assert "Sources:" in graph_out["reply"] and P2 not in graph_out["reply"]
+
+    s = _ask(P1, P1, "What is my haemoglobin?")
+    s |= n.scope_guard(s, tools)
+    s |= n.doctor_check(s, tools)
+    s |= n.retrieve(s, tools)
+    assert n.grade(s) == "answer"
+    own_ids = {h["chunk_id"] for h in s["hits"] if
+               h["vscore"] >= n.V_MIN or coverage(s["question"], h["text"]) > n.COVERAGE_MIN}
+    foreign = {**s["hits"][0], "chunk_id": "foreign-test-chunk", "doc_id": "foreign-test-doc",
+               "patient_id": P2, "text": "HEMOGLOBIN\nFOREIGN_PATIENT_SECRET"}
+    s["hits"].append(foreign)
+
+    degraded = n.answer(s, ScriptedLLM({"w2.answer": ModelUnavailable("offline")}))
+
+    assert degraded["route"] == "answer_degraded" and degraded["verified"] is False
+    assert "Sources:" in degraded["reply"] and "FOREIGN_PATIENT_SECRET" not in degraded["reply"]
+    assert set(degraded["citations"]) == own_ids and degraded["degraded"] is True
+    assert n.VERIFY_FALLBACK in degraded["reply"]
 
 
 def test_invented_number_falls_back_to_the_record_itself(tools):

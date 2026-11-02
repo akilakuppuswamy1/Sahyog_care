@@ -5,13 +5,15 @@ graph.py wires these into a StateGraph and adds the two human pauses (clarify, p
 """
 from __future__ import annotations
 
+import math
+import os
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypedDict
 
 from services.common.timefmt import ist
-from services.agent.llm import JsonLLM
+from services.agent.llm import JsonLLM, ModelError
 from services.agent.store import SlotFull, Store
 from services.agent.w1 import matcher, redflags
 
@@ -48,6 +50,7 @@ class W1State(TypedDict, total=False):
     book_attempts: int
     booking_id: str | None
     reply: str
+    degraded: bool
 
 
 def intake(s: W1State) -> W1State:
@@ -89,15 +92,26 @@ def model_checks(s: W1State, llm: JsonLLM) -> W1State:
     with ThreadPoolExecutor(max_workers=2) as executor:
         net_future = executor.submit(red_flag_net, s, llm)
         match_future = executor.submit(match_specialty, s, llm)
-        net = net_future.result()
-        match = match_future.result()
+        try:
+            net = net_future.result()
+            net_failed = False
+        except (ModelError, TimeoutError):
+            net, net_failed = {}, True
+        try:
+            match = match_future.result()
+            match_failed = False
+        except (ModelError, TimeoutError):
+            match, match_failed = {}, True
     if net.get("red_flags"):
         return {**net, "specialty": None, "alternative": None}
+    if net_failed or match_failed:
+        return {**net, **match, "degraded": True, "specialty": None, "alternative": None,
+                "route": "front_desk"}
     return {**net, **match}
 
 
 def after_model_checks(s: W1State) -> str:
-    return "handoff" if s.get("red_flags") else s["route"]
+    return "handoff" if s.get("red_flags") else ("front_desk" if s.get("degraded") else s["route"])
 
 
 def after_red_flags(s: W1State) -> str:
@@ -133,9 +147,21 @@ def apply_clarification(s: W1State, answer: str) -> W1State:
 
 
 def front_desk(s: W1State, tools: Store) -> W1State:
+    model_unavailable = s.get("degraded", False)
     tools.escalate("front_desk", s["patient_id"], s["trace_id"],
-                   {"reason": "low_confidence" if s.get("low_conf_turns") else "no_candidates",
+                   {"reason": "model unavailable" if model_unavailable else
+                    ("low_confidence" if s.get("low_conf_turns") else "no_candidates"),
                     "low_conf_turns": s.get("low_conf_turns", 0)})
+    if model_unavailable:
+        raw_sla = os.environ.get("W1_FRONT_DESK_SLA_MINUTES", "30")
+        try:
+            sla = float(raw_sla)
+        except ValueError as exc:
+            raise ValueError("W1_FRONT_DESK_SLA_MINUTES must be a number") from exc
+        if not math.isfinite(sla) or sla <= 0:
+            raise ValueError("W1_FRONT_DESK_SLA_MINUTES must be positive")
+        return {"reply": f"Our booking assistant is busy; the front desk will call you within {sla:g} minutes.",
+                "route": "front_desk"}
     return {"reply": FRONT_DESK_REPLY, "route": "front_desk"}
 
 

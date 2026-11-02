@@ -20,6 +20,7 @@ import json
 import os
 import statistics
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -33,7 +34,8 @@ TARGETS = {"scope_leaks": (0, "=="), "route_accuracy": (0.9, ">="), "citation_pr
 def score(cases, preds) -> dict:
     def ok_route(c, p):
         return p["route"] in c["expect"].get("accept_routes", [c["expect"]["route"]])
-    answered = [(c, p) for c, p in zip(cases, preds) if c["expect"]["route"] == "answer" and p["route"] == "answer"]
+    answered = [(c, p) for c, p in zip(cases, preds) if c["expect"]["route"] == "answer" and
+                p["route"] in {"answer", "answer_degraded"}]
     paged = [(c, p) for c, p in answered if c["expect"].get("page")]
     prec = [len(set(p["cited_docs"]) & set(c["expect"].get("doc_ids", []))) / len(set(p["cited_docs"]))
             for c, p in answered if p["cited_docs"]]
@@ -41,6 +43,8 @@ def score(cases, preds) -> dict:
     lat = sorted(p["latency_s"] for p in preds)
     return {
         "cases": len(cases),
+        "fallback_rate": round(sum(p.get("served_by") in {"hedge", "fallback"} for p in preds) / len(preds), 3),
+        "degraded_rate": round(sum(bool(p.get("degraded")) for p in preds) / len(preds), 3),
         "route_accuracy": round(sum(ok_route(c, p) for c, p in zip(cases, preds)) / len(cases), 3),
         "scope_leaks": sum(p["leak"] for p in preds),
         "citation_precision": round(sum(prec) / len(prec), 3) if prec else None,
@@ -98,14 +102,21 @@ def main() -> None:
         preds = []
         for c in cases:
             t = time.perf_counter()
+            trace_id = f"eval-{c['id']}-{uuid.uuid4().hex[:8]}"
             out = graph.invoke({"actor_id": c["actor_id"], "subject_id": c["subject_id"], "actor_role": c["actor_role"],
-                                "question": c["question"]})
+                                "question": c["question"], "trace_id": trace_id})
             hits = out.get("hits") or []
             cited = [h for h in hits if h["chunk_id"] in set(out.get("citations") or [])]
             reply = out.get("reply", "")
             leak = any(h["patient_id"] != c["subject_id"] for h in hits) or \
                 any(x.lower() in reply.lower() for x in c.get("must_not_text", []))
+            calls = [r for r in llm.usage.call_records if r.get("trace_id") == trace_id]
+            selected = [r for r in calls if r.get("selected")]
+            served_by = next((role for role in ("primary", "hedge", "fallback")
+                              if any(r.get("served_by") == role for r in selected)),
+                             "unavailable" if calls else "none")
             preds.append({"id": c["id"], "route": out.get("route"), "reply": reply, "verified": out.get("verified"),
+                          "degraded": bool(out.get("degraded", False)), "served_by": served_by,
                           "cited_docs": sorted({h["doc_id"] for h in cited}), "cited_pages": sorted({h["page"] for h in cited}),
                           "hit_patients": sorted({h["patient_id"] for h in hits}), "leak": leak,
                           "latency_s": round(time.perf_counter() - t, 3)})
@@ -113,6 +124,7 @@ def main() -> None:
     meta = {"run_id": datetime.now().strftime("%Y%m%d-%H%M%S"), "model": llm.model, "embedder": "BAAI/bge-m3 (local)",
             "prompt_version": nodes.PROMPT_VERSION, "rules_version": rules.RULES_VERSION, "v_min": nodes.V_MIN,
             "tokens": {"calls": llm.usage.calls, "prompt": llm.usage.prompt_tokens, "completion": llm.usage.completion_tokens}}
+    meta["model_calls"] = llm.usage.call_records
     m = score(cases, preds)
     RUNS.mkdir(parents=True, exist_ok=True)
     stem = RUNS / f"w2-{meta['run_id']}"

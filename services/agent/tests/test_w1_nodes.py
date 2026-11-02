@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from services.agent.llm import ModelError, ScriptedLLM
+from services.agent.llm import ModelError, ModelUnavailable, ScriptedLLM
 from services.agent.store import InMemoryStore
 from services.agent.w1 import matcher, nodes as n
 
@@ -37,11 +37,16 @@ def test_model_net_can_add_a_flag():
     assert n.after_red_flags(s) == "handoff" and s["red_flags"] == ["model:possible_sepsis"]
 
 
-def test_broken_model_net_never_blocks_or_clears():
-    llm = ScriptedLLM({"w1.red_flag_net": ModelError("down")})
+def test_broken_model_net_routes_to_front_desk_without_booking():
+    llm = ScriptedLLM({"w1.red_flag_net": ModelUnavailable("down"), "w1.match": MATCH_ORTHO})
     s = start("lower back pain for three weeks")
-    s |= n.red_flag_net(s, llm)
-    assert s["red_flags"] == [] and n.after_red_flags(s) == "continue"
+    s |= n.model_checks(s, llm)
+    store = InMemoryStore.demo()
+    s |= n.front_desk(s, store)
+    assert n.after_model_checks(s) == "front_desk"
+    assert s["red_flags"] == [] and s.get("booking_id") is None and not s.get("candidates")
+    assert "within 30 minutes" in s["reply"]
+    assert store.events[-1]["detail"]["reason"] == "model unavailable"
 
 
 def test_model_checks_runs_net_and_match_and_a_net_flag_wins():
@@ -62,8 +67,18 @@ def test_model_checks_survives_a_failed_net():
     s = start("lower back pain for three weeks")
     s |= n.model_checks(s, llm)
     assert {purpose for purpose, _ in llm.sent} == {"w1.red_flag_net", "w1.match"}
-    assert n.after_model_checks(s) == "book"
-    assert s["red_flags"] == [] and s["specialty"] == "SP07"
+    assert n.after_model_checks(s) == "front_desk"
+    assert s["red_flags"] == [] and s.get("specialty") is None and s["degraded"]
+
+
+def test_emergency_rules_handoff_even_when_the_model_is_down():
+    llm = ScriptedLLM({"w1.red_flag_net": ModelUnavailable("down"), "w1.match": ModelUnavailable("down")})
+    store = InMemoryStore.demo()
+    s = start("crushing chest pain and sweating", 55)
+    assert n.after_red_flags(s) == "handoff"
+    s |= n.er_handoff(s, store)
+    assert "112" in s["reply"] and llm.sent == []
+    assert store.events[-1]["purpose"] == "emergency_desk"
 
 
 def test_routine_match_shortlists_three_with_language_preference():

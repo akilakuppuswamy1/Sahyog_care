@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from services.api.deps import build_test_deps
 from services.api.main import create_app
 from services.api.ratelimit import RateLimiter
+from services.agent.llm import ModelUnavailable
 
 
 def headers(patient="PT-A", key=None):
@@ -125,3 +126,22 @@ def test_json_logs_exclude_symptoms(client, caplog):
     assert row["user"] == hashlib.sha256(b"PT-A").hexdigest()[:12]
     assert row["trace_id"] == response.headers["X-Trace-Id"]
     assert {"ts", "method", "path", "status", "latency_ms", "thread_id", "route"} <= row.keys()
+
+
+def test_model_outage_sets_degraded_header_and_log(client, caplog, monkeypatch):
+    deps = client.app.state.deps
+    deps.w1_llm.responses = {
+        "w1.red_flag_net": ModelUnavailable("offline"),
+        "w1.match": ModelUnavailable("offline"),
+    }
+    monkeypatch.setenv("W1_FRONT_DESK_SLA_MINUTES", "30")
+    with caplog.at_level("INFO", logger="sahyog.api"):
+        response = client.post("/w1/triage", headers=headers(),
+                               json={"text": "lower back pain for three weeks"})
+    assert response.status_code == 200
+    assert response.headers["X-Degraded"] == "true"
+    assert response.json()["route"] == "front_desk" and response.json()["booking_id"] is None
+    row = next(json.loads(r.message) for r in caplog.records
+               if r.name == "sahyog.api" and json.loads(r.message).get("path") == "/w1/triage")
+    assert row["degraded"] is True
+    assert deps.store.events[-1]["detail"]["reason"] == "model unavailable"

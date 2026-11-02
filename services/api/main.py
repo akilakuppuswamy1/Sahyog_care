@@ -98,6 +98,8 @@ def create_app(deps_factory=build_postgres_deps):
                 response.headers["X-Trace-Id"] = request.state.trace_id
                 if getattr(request.state, "thread_id", None):
                     response.headers["X-Thread-Id"] = request.state.thread_id
+                if getattr(request.state, "degraded", False):
+                    response.headers["X-Degraded"] = "true"
             return response
         finally:
             route = request.scope.get("route")
@@ -109,13 +111,14 @@ def create_app(deps_factory=build_postgres_deps):
                 user=hashlib.sha256(user.encode()).hexdigest()[:12] if user else None,
                 trace_id=request.state.trace_id,
                 thread_id=getattr(request.state, "thread_id", None),
-                route=getattr(request.state, "model_route", None))))
+                route=getattr(request.state, "model_route", None),
+                degraded=getattr(request.state, "degraded", False))))
 
     @app.get("/health")
     def health():
         return {"status": "ok"}
 
-    def current_w1(deps, user, thread):
+    def current_w1(deps, user, thread, request=None):
         row = deps.w1_requests.get(user, thread)
         if not row:
             raise HTTPException(404, "Thread not found")
@@ -124,13 +127,15 @@ def create_app(deps_factory=build_postgres_deps):
         with deps.lock:
             state = deps.w1.get_state({"configurable": {"thread_id": thread}})
             out = dict(state.values)
+            if request is not None:
+                request.state.degraded = bool(out.get("degraded", False))
             out["__interrupt__"] = [i for task in state.tasks for i in task.interrupts]
             return w1_response(thread, out)
 
     @app.get("/w1/{thread_id}")
     def w1_status(thread_id: str, request: Request, user: str = Depends(current_user)):
         request.state.thread_id = thread_id
-        return current_w1(request.app.state.deps, user, thread_id)
+        return current_w1(request.app.state.deps, user, thread_id, request)
 
     @app.post("/w1/triage")
     def triage(body: Triage, request: Request, user: str = Depends(current_user)):
@@ -141,13 +146,14 @@ def create_app(deps_factory=build_postgres_deps):
         request.state.trace_id = thread
         request.state.thread_id = thread
         if not claimed:
-            return current_w1(deps, user, thread)
+            return current_w1(deps, user, thread, request)
         with deps.lock:
             out = deps.w1.invoke(dict(text=body.text, age=body.age, patient_id=user,
                                       trace_id=thread, idempotency_key=key),
                                  {"configurable": {"thread_id": thread}})
             deps.w1_requests.finish(user, thread)
         request.state.model_route = out.get("route")
+        request.state.degraded = bool(out.get("degraded", False))
         return w1_response(thread, out)
 
     @app.post("/w1/{thread_id}/resume")
@@ -159,6 +165,7 @@ def create_app(deps_factory=build_postgres_deps):
             state = deps.w1.get_state(cfg)
             if not state.values or state.values.get("patient_id") != user:
                 raise HTTPException(404, "Thread not found")
+            request.state.degraded = bool(state.values.get("degraded", False))
             request.state.trace_id = thread_id
             request.state.thread_id = thread_id
             if (user, key) in replays:
@@ -178,6 +185,7 @@ def create_app(deps_factory=build_postgres_deps):
             out = deps.w1.invoke(Command(resume=body.value, update={"idempotency_key": key}), cfg)
             replays[user, key] = w1_response(thread_id, out)
             request.state.model_route = out.get("route")
+            request.state.degraded = bool(out.get("degraded", False))
         return w1_response(thread_id, out)
 
     @app.post("/w2/ask")
@@ -191,6 +199,7 @@ def create_app(deps_factory=build_postgres_deps):
                                      question=body.question))
         request.state.trace_id = out.get("trace_id") or request.state.trace_id
         request.state.model_route = out.get("route")
+        request.state.degraded = bool(out.get("degraded", False))
         return {key: out.get(key, False if key == "verified" else "")
                 for key in ("route", "reply", "verified", "trace_id")}
 

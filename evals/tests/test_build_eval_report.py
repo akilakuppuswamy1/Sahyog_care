@@ -11,10 +11,12 @@ def test_report_uses_latest_run_and_preserves_history_and_tokens(tmp_path, monke
             "meta": {"run_id": stamp, "mode": "graph", "model": "fake-model",
                      "prompt_version": "test-v1", "rules_version": "test-r1",
                      "tokens": {"calls": 4, "prompt": 1200, "completion": 200}},
-            "metrics": {"cases": 2, "latency_p95_s": latency, "red_flag_recall": 1,
+            "metrics": {"cases": 2, "latency_p95_s": latency, "fallback_rate": .25, "red_flag_recall": 1,
                         "specialty_accuracy": .9}}), encoding="utf-8")
     report = build_report(tmp_path)
     assert "| W1 | 20260102-100000 | fake-model | 2.79 |" in report
+    assert "| W1 | 2 | 2.79 | 9.63 | 6.84 |" in report
+    assert "Fallback rate" in report and "| 0.25 |" in report
     assert "9.63" in report and "test-v1 / test-r1" in report
     assert "300.00 / 50.00" in report and "600.00 / 100.00 (2 turns)" in report
     assert "Price list date: to fill" in report

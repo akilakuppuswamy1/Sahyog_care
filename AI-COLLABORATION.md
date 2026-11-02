@@ -199,6 +199,7 @@ proposed:
 - Separate cached torch/pip build layers, README Core tier and three-step Start, and evidence-based discovery checkboxes; D2 and incomplete inventory licences remain unticked.
 - Isolated PostgreSQL regression for COPY, idempotence, rollback, partial fixture cohorts and unchanged consent expiry.
 - Day-8 change-request preparation (docs only): a timed two-hour checklist, ADR-004 draft template in ADR-001's format, and two short client message templates with confirmation, tradeoffs and revised dates.
+- Executive memo: save the user-supplied text verbatim in `memo/executive-memo.md`, preserving `<names>`, and audit every factual claim against saved run JSON, the eval report, API controls, implementation and tests; report caveats separately without revising the memo.
 accepted: _pod to fill_
 rejected: _pod to fill_
 why: _pod to fill_
@@ -210,3 +211,20 @@ notes:
 - Verification: full `python -m pytest` with `DATABASE_URL=postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog` and `PYTHON_DOTENV_DISABLED=1`: **242 passed, 13 warnings in 48.99s**; no failures or skips. Warnings are dependency deprecations. Compose config validation passed (exit 0). Human review fields intentionally unfilled.
 - Day-8 docs notes: the first combined patch used an incomplete log heading as context; apply_patch rejected it before writing any files. The files were then created and reviewed against the requested checklist and ADR-001. No source deck was available for independent p.43 verification; content follows the supplied task.
 - Day-8 docs verification: the first pytest invocation hit a sandbox base-interpreter access denial; the tool error caught it and the approved rerun of the full `pytest` suite, with the required DATABASE_URL and `PYTHON_DOTENV_DISABLED=1`, reported **242 passed, 13 warnings in 30.55s**. `git diff --check` passed. No eval runner, OpenRouter call, Docker build or `.env` access. Human review fields remain untouched.
+- Executive-memo evidence review: latest W1 scores are supported, but 34 is the whole set (12 emergency-desk cases plus one crisis-line red flag); specialty accuracy is scored on 16 booking cases. Latest W2 supports 30 cases, zero scope leaks and correct page citations, not universal safety or calibrated faithfulness. The PRD labels 41%, 9,000/day, 2.4M PDFs/year and 11 minutes as client figures pending discovery, contradicting the memo's blanket eval provenance. Production booking performance, exhaustive read auditing, verified residency/full de-identification, a one-day vendor swap, provider-caused latency variance, all-target W2 success, the quoted retry motivation and uniqueness of the user-facing incident cannot be established from this evidence. SQL scope, consent checks, the documented retry incident and fixes, model-selection history, token counts and rounded latency values have bounded repo support. Timeout/fallback under 4 s remains a plan; tracing and a 15 s timeout already exist.
+- Executive-memo notes (what the agent got wrong and what caught it): initial file searches assumed a top-level `tests` directory and `services/api/models.py`; `rg` reported those paths absent and the review used the actual distributed test paths and request models in `main.py`. The first full pytest invocation encountered the sandbox base-interpreter denial; execution approval resolved it. No memo wording or numbers were corrected despite evidence caveats, as explicitly requested.
+- Executive-memo verification: full `pytest` with the required local DATABASE_URL and `PYTHON_DOTENV_DISABLED=1`: **242 passed, 13 warnings in 23.85s** (dependency deprecations; no failures or skips). No `.env` access, eval execution, OpenRouter call or Docker build. Updated this open PR entry; human accepted/rejected/why fields remain untouched.
+### PR #12 — Pro: model resilience — 2026-11-02
+agent: Copilot SDK assistant (model not recorded)
+proposed:
+- Add per-workflow model deadlines, one scrubbed hedge, a two-call-per-request cap, per-(workflow, model) circuit breakers, and model/provider/serving-role usage records.
+- Degrade W1 outages to front-desk escalation only after deterministic red-flag rules; return a scoped, unverified verbatim-lines fallback for strong W2 report matches.
+- Expose degraded API responses in `X-Degraded` and structured logs; record `served_by`, fallback/degraded rates, and p95 spread in eval output and the offline report.
+- Document the new settings, outage behavior and denial-of-service control; add fake-client and workflow regressions.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- What the agent got wrong: the first focused run exposed a race where an already-successful fallback could finish after the wait result was captured; `test_primary_error_uses_fallback` failed and caught it. The wait loop now rechecks all completed futures before declaring both branches failed.
+- Verification: focused fake-client/workflow tests passed (74 passed); final full `pytest` with the required local DATABASE_URL and `PYTHON_DOTENV_DISABLED=1`: **255 passed, 13 warnings in 23.86s** (no failures or skips). Pylance found no syntax errors or type errors in the changed model and node modules.
+- The saved-run report was regenerated offline; no eval runner, OpenRouter request, Docker build or `.env` access. The existing untracked executive memo was left untouched. Human accepted/rejected/why fields remain for the pod.

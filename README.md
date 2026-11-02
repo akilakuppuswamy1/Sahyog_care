@@ -69,6 +69,10 @@ python -m uvicorn services.api.main:app --port 8000
 
 Supply `OPENROUTER_API_KEY` and the model environment variables in the repo-root `.env` or your shell before starting locally. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled above).
 
+### When the model is slow or down
+
+Each W1/W2 model call has a workflow deadline and can launch one scrubbed hedged request to an alternate model or OpenRouter provider; a per-model circuit breaker prevents repeated calls to a failing provider. If W1 is still unavailable after its deterministic red-flag rules, it sends the case to the front desk without booking and gives the configured call-back window. If W2 is unavailable for a strongly matched report question, it returns only verbatim lines from that patient's matched report chunks with Sources and marks the answer unverified; weak matches remain not found. Degraded API responses carry `X-Degraded: true`, and the request log records `degraded`.
+
 Or use Docker:
 
 ```powershell
