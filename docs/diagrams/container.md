@@ -2,16 +2,20 @@
 
 The API uses a shared lock; durable PDF ingestion runs in a separate worker process
 with the same image. Sources: `services/api/{main,deps,auth,ratelimit}.py`,
-`services/agent/llm.py`, `services/records/{embed,ingest,retrieve}.py`, `infra/docker-compose.yml`.
+`services/mcp/server.py`, `services/agent/llm.py`, `services/records/{embed,ingest,retrieve}.py`,
+`infra/docker-compose.yml`.
 
 ```mermaid
 flowchart TB
     UI[Browser patient, front desk, ops and doctor UI - built] --> API
+    AGENT[Approved hospital agent] --> MCP
     subgraph India[India boundary - target hosting; local demo today]
         API[API - built: W1/W2/W3 HTTP routes, front desk, ops, upload]
+        MCP[MCP - built: Streamable HTTP at /mcp and standalone]
         AUTH[Auth - built demo bearer roles; OIDC and booking OTP planned Pro]
         RL[Rate limiter - built per patient and IP in process]
         GRAPH[Graph runtime - built W1/W2/W3 LangGraph]
+        STOCK[W3 stock adapter - built]
         PG[(Postgres 16 + pgvector + W1 checkpointer + trace_span - built)]
         EMB[Local bge-m3 - built; HashEmbedder in tests]
         ING[PDF upload - enqueue and owner-only job status]
@@ -28,12 +32,19 @@ flowchart TB
         API --> RL
         API --> GRAPH
         API --> ING
+        MCP --> AUTH
+        MCP --> RL
+        MCP --> PG
+        MCP --> STOCK
+        MCP --> AUD
+        MCP --> TRACE
         WORKER --> EMB
         ING --> PG
         GRAPH --> PG
         GRAPH --> EMB
         GRAPH --> EG
         GRAPH --> AUD
+        GRAPH --> STOCK
         API --> TRACE
         GRAPH --> TRACE
         TRACE --> PG
@@ -57,7 +68,8 @@ Langfuse Cloud is rejected for residency. Uploads are local files, not a built o
 not an automatic database read interceptor. Planned tier allocations here and in D7 are delivery
 targets, not implemented guarantees.
 
-Migration 012 adds owner-scoped, content-hash-idempotent document jobs. The API
+Migration 012 adds owner-scoped, content-hash-idempotent document jobs. Migration 013
+extends the audit actor-role constraint for MCP ops calls. The API
 commits document registration and enqueue together and returns HTTP 202. Workers
 claim using `FOR UPDATE SKIP LOCKED`; session advisory locks fence live attempts
 and disappear on disconnect. Retry eligibility is persisted with exponential

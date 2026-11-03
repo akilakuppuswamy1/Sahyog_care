@@ -258,7 +258,7 @@ CREATE TABLE audit_event (
     at             timestamptz NOT NULL DEFAULT now(),
     actor_id       text NOT NULL,
     actor_role     text NOT NULL CHECK (actor_role IN
-                   ('patient','caregiver','doctor','front_desk','pharmacist','compliance','system')),
+                   ('patient','caregiver','doctor','front_desk','ops','pharmacist','compliance','system')),
     action         text NOT NULL CHECK (action IN ('read','write','delete','sign','override','escalate')),
     resource_type  text NOT NULL,
     resource_id    text NOT NULL,

@@ -39,6 +39,7 @@ class AppDeps:
     w3: Any = None
     w3_store: Any = None
     w3_requests: Any = None
+    stock: Any = None
 
 
 class W1Requests:
@@ -163,7 +164,7 @@ def build_postgres_deps() -> AppDeps:
 
         return AppDeps(w1, w2, audit, close=stack.close, store=store, embedder=embedder,
                        w1_requests=W1Requests(pool), tracer=tracer,
-                       w3=w3, w3_store=w3_store, w3_requests=W3Requests(pool))
+                       w3=w3, w3_store=w3_store, w3_requests=W3Requests(pool), stock=w3_stock)
     except BaseException:
         stack.close()
         raise
@@ -192,6 +193,7 @@ def build_test_deps() -> AppDeps:
         "ENC-W3-TEST": {"encounter_id": "ENC-W3-TEST", "patient_id": "PT-W3-TEST",
                         "doctor_id": "DR-W3-TEST", "clinic_id": "TEST-CLINIC"},
     })
+    stock = TestStock()
     w3_llm = ScriptedLLM({"w3.draft_soap": {
         "S": "Follow-up visit.", "O": "", "A": "", "P": "Continue metformin 500 mg daily.",
         "medicines": [{"name": "metformin", "molecule": "metformin", "dose": "500 mg",
@@ -201,5 +203,5 @@ def build_test_deps() -> AppDeps:
                    compile_w2(ScriptedLLM({}, tracer=tracer), tools, tracer=tracer),
                    lambda patient: [e for e in tools.events + store.events if e["patient_id"] == patient],
                    w1_llm=llm, store=store, tracer=tracer,
-                   w3=compile_w3(w3_llm, w3_store, TestStock(), InMemorySaver(), tracer),
-                   w3_store=w3_store, w3_requests=W3Requests())
+                   w3=compile_w3(w3_llm, w3_store, stock, InMemorySaver(), tracer),
+                   w3_store=w3_store, w3_requests=W3Requests(), stock=stock)

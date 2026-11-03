@@ -9,8 +9,9 @@ import json
 import uuid
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Protocol
+from zoneinfo import ZoneInfo
 from services.common.tracing import Tracer, trace_id_for
 
 ACTOR = "agent:w1"
@@ -66,12 +67,64 @@ class PostgresStore:
                         for r in rows]
             return out
 
-    def book(self, patient_id: str, slot_id: str, idempotency_key: str) -> str:
-        with self._trace("book"):
+    def list_specialties(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT specialty_id, name FROM specialty ORDER BY name, specialty_id"
+        ).fetchall()
+        return [dict(specialty_id=row[0], name=row[1]) for row in rows]
+
+    def find_doctors(self, specialty_id: str, language: str | None = None,
+                     clinic_id: str | None = None, limit: int = 10) -> list[dict]:
+        language = _lang(language) if language else None
+        rows = self.conn.execute(
+            """SELECT d.doctor_id, d.name, c.clinic_id, c.name, d.languages
+                 FROM doctor d JOIN clinic c USING (clinic_id)
+                WHERE d.specialty_id = %s
+                  AND (%s::text IS NULL OR %s = ANY (d.languages))
+                  AND (%s::text IS NULL OR d.clinic_id = %s)
+                ORDER BY d.name, d.doctor_id LIMIT %s""",
+            (specialty_id, language, language, clinic_id, clinic_id, limit),
+        ).fetchall()
+        return [dict(doctor_id=row[0], name=row[1], clinic_id=row[2], clinic=row[3],
+                     languages=list(row[4])) for row in rows]
+
+    def next_slots(self, specialty_id: str | None = None, doctor_id: str | None = None,
+                   from_date: date | None = None, limit: int = 10) -> list[dict]:
+        if (specialty_id is None) == (doctor_id is None):
+            raise ValueError("Provide exactly one of specialty_id or doctor_id")
+        start = (datetime.combine(from_date, datetime.min.time(),
+                                  tzinfo=ZoneInfo("Asia/Kolkata"))
+                 if from_date else datetime.now(timezone.utc))
+        rows = self.conn.execute(
+            """SELECT s.slot_id, s.starts_at
+                 FROM slot s JOIN doctor d USING (doctor_id)
+                WHERE s.starts_at >= %s AND s.booked < s.capacity
+                  AND (%s::text IS NULL OR d.specialty_id = %s)
+                  AND (%s::text IS NULL OR d.doctor_id = %s)
+                ORDER BY s.starts_at, s.slot_id LIMIT %s""",
+            (start, specialty_id, specialty_id, doctor_id, doctor_id, limit),
+        ).fetchall()
+        return [dict(slot_id=row[0], starts_at=row[1]) for row in rows]
+
+    def get_booking(self, appt_id: str, patient_id: str, staff_access: bool = False) -> dict | None:
+        try:
+            appt_id = uuid.UUID(appt_id)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        row = self.conn.execute(
+            """SELECT appt_id, patient_id, status FROM appointment
+                WHERE appt_id = %s AND (%s OR patient_id = %s)""",
+            (appt_id, staff_access, patient_id),
+        ).fetchone()
+        return (dict(appt_id=str(row[0]), patient_id=row[1], status=row[2]) if row else None)
+
+    def book(self, patient_id: str, slot_id: str, idempotency_key: str,
+             booked_by: str = "assistant", trace: bool = True) -> str:
+        with (self._trace("book") if trace else nullcontext()):
             import psycopg
             try:
-                appt = self.conn.execute("SELECT book_slot(%s, %s, %s, 'assistant')",
-                                         (patient_id, slot_id, idempotency_key)).fetchone()[0]
+                appt = self.conn.execute("SELECT book_slot(%s, %s, %s, %s)",
+                                         (patient_id, slot_id, idempotency_key, booked_by)).fetchone()[0]
             except psycopg.errors.RaiseException as e:
                 raise SlotFull(str(e)) from e
             return str(appt)
@@ -131,15 +184,61 @@ class InMemoryStore:
                     break
             return out
 
-    def book(self, patient_id, slot_id, idempotency_key):
-        with self._trace("book"):
+    def list_specialties(self):
+        names = {doctor["specialty_id"]: doctor["specialty"] for doctor in self.doctors}
+        return [dict(specialty_id=specialty_id, name=name)
+                for specialty_id, name in sorted(names.items(), key=lambda item: (item[1], item[0]))]
+
+    def find_doctors(self, specialty_id, language=None, clinic_id=None, limit=10):
+        lang = _lang(language) if language else None
+        doctors = [
+            doctor for doctor in self.doctors
+            if doctor["specialty_id"] == specialty_id
+            and (lang is None or lang in doctor["languages"])
+            and (clinic_id is None or clinic_id == doctor["clinic_id"])
+        ]
+        doctors.sort(key=lambda doctor: (doctor["doctor_name"], doctor["doctor_id"]))
+        return [
+            dict(doctor_id=doctor["doctor_id"], name=doctor["doctor_name"],
+                 clinic_id=doctor["clinic_id"], clinic=doctor["clinic"],
+                 languages=list(doctor["languages"]))
+            for doctor in doctors[:limit]
+        ]
+
+    def next_slots(self, specialty_id=None, doctor_id=None, from_date=None, limit=10):
+        if (specialty_id is None) == (doctor_id is None):
+            raise ValueError("Provide exactly one of specialty_id or doctor_id")
+        start = (datetime.combine(from_date, datetime.min.time(),
+                                  tzinfo=ZoneInfo("Asia/Kolkata"))
+                 if from_date else datetime.now(timezone.utc))
+        slots = [
+            dict(slot_id=doctor["slot_id"], starts_at=doctor["starts_at"])
+            for doctor in self.doctors
+            if doctor["slot_id"] not in self.booked
+            and (specialty_id is None or doctor["specialty_id"] == specialty_id)
+            and (doctor_id is None or doctor["doctor_id"] == doctor_id)
+            and datetime.fromisoformat(doctor["starts_at"].replace("Z", "+00:00")) >= start
+        ]
+        slots.sort(key=lambda slot: (slot["starts_at"], slot["slot_id"]))
+        return slots[:limit]
+
+    def get_booking(self, appt_id, patient_id, staff_access=False):
+        appointment = getattr(self, "appointments", {}).get(appt_id)
+        if not appointment or (not staff_access and appointment["patient_id"] != patient_id):
+            return None
+        return dict(appt_id=appt_id, patient_id=appointment["patient_id"],
+                    status=appointment["status"])
+
+    def book(self, patient_id, slot_id, idempotency_key, booked_by="assistant", trace=True):
+        with (self._trace("book") if trace else nullcontext()):
             if (patient_id, idempotency_key) in self.keys:
                 return self.keys[(patient_id, idempotency_key)]
             if slot_id in self.booked or slot_id not in {d["slot_id"] for d in self.doctors}:
                 raise SlotFull(f"slot {slot_id} is full or does not exist")
             appt = str(uuid.uuid4())
             if not hasattr(self, "appointments"): self.appointments = {}
-            self.appointments[appt] = dict(appt_id=appt, patient_id=patient_id, slot_id=slot_id, status="booked", booked_by="assistant")
+            self.appointments[appt] = dict(appt_id=appt, patient_id=patient_id, slot_id=slot_id,
+                                           status="booked", booked_by=booked_by)
             self.booked[slot_id] = appt
             self.keys[(patient_id, idempotency_key)] = appt
             return appt

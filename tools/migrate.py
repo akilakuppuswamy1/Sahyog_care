@@ -93,6 +93,18 @@ def seed_records(conn):
                 raise RuntimeError(f"Fixture ingest failed: {item['doc_id']}")
 
 
+def seed_demo_patients(conn):
+    demo_patient_ids = ("PT-DEMO-0001", "PT-W2-0001", "PT-W2-0002")
+    with conn.transaction():
+        for patient_id in demo_patient_ids:
+            conn.execute(
+                """INSERT INTO patient (patient_id, name, dob, language, synthetic)
+                   VALUES (%s, 'Demo Patient', '1992-01-01', 'en', true)
+                   ON CONFLICT (patient_id) DO NOTHING""",
+                (patient_id,),
+            )
+
+
 def main():
     from dotenv import load_dotenv
 
@@ -105,6 +117,7 @@ def main():
         try:
             migrate(conn)
             seed_records(conn)
+            seed_demo_patients(conn)
         finally:
             conn.execute("SELECT pg_advisory_unlock(7264012)")
 

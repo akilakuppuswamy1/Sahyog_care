@@ -1,6 +1,6 @@
 # Architecture pack — version 2
 
-Status: Pro (`pro-complete`), with the unmet quality and deployment targets in the [evaluation report](../evals/report.md). W1/W2, Core API, Postgres tracing, durable queued ingest with a separate worker and owner-only job status, and the W3 scribe graph, doctor API/console, draft persistence, eval set, and timeout command are built; the W3 timeout job is not scheduled in the demo. India residency is a deployment target, not a claim about this local demo. This supersedes v1's prospective diagrams.
+Status: Pro (`pro-complete`), with the unmet quality and deployment targets in the [evaluation report](../evals/report.md). W1/W2, Core API, Postgres tracing, durable queued ingest with a separate worker and owner-only job status, the W3 scribe graph, doctor API/console and persistence, and the MCP scheduling/stock tool server are built; the W3 timeout job is not scheduled in the demo. MCP uses demo identity and in-process limits, so production identity and distributed limits remain open. India residency is a deployment target, not a claim about this local demo. This supersedes v1's prospective diagrams.
 
 ## Views and decisions
 
@@ -11,11 +11,13 @@ Status: Pro (`pro-complete`), with the unmet quality and deployment targets in t
 - [W2 compiled graph](diagrams/w2-graph.md)
 - [W3 scribe graph — built](diagrams/w3-graph.md)
 - [W1 booking sequence](diagrams/seq-w1-booking.md)
+- [MCP booking sequence](diagrams/seq-mcp-booking.md)
 - [W2 cited answer sequence](diagrams/seq-w2-answer.md)
 - [ADR-001 — hybrid deployment](adr/ADR-001-hybrid-deployment.md)
 - [ADR-002 — database safety rules](adr/ADR-002-safety-rules-in-the-database.md)
 - [ADR-003 — W1 graph shape](adr/ADR-003-w1-graph-shape.md)
 - [ADR-005 — in-region tracing](adr/ADR-005-tracing.md)
+- [ADR-006 — MCP tool server](adr/ADR-006-mcp-tool-server.md)
 - [D6 deployment ADR](../infra/deployment-adr.md)
 - [D7 threat model and access review](d7-threat-model.md)
 

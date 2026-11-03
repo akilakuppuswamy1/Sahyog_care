@@ -29,9 +29,10 @@ Pro is the delivery milestone; it does not mean every evaluation target is met o
   [calibration 20261103-061312-389012](evals/runs/judge-calibration-20261103-061312-389012.json)).
   The [judge-zero human review](evals/runs/judge-review-w2-20261103-094651.md) records both an answer defect
   and judge errors in an earlier run; calibration does not make the judge infallible.
-- Architect items are not built yet: verified India hosting, encryption at rest, least-privilege database roles,
-  distributed limits, retention validation and recovery drills. Production identity/booking OTP and SMS delivery
-  also remain unbuilt; W3 timeout and trace-purge commands are not scheduled.
+- Remaining Architect items include verified India hosting, encryption at rest, least-privilege database roles,
+  distributed limits, retention validation and recovery drills. The MCP scheduling/stock surface is built, but still
+  uses demo identity and in-process limits. Production identity/booking OTP and SMS delivery also remain unbuilt;
+  W3 timeout and trace-purge commands are not scheduled.
 - Booking completion/time and doctor review time remain unmeasured. See [evaluation report](evals/report.md)
   and [D7 residual risks](docs/d7-threat-model.md).
 - **Day-8 change request:** Not received at submission; [template](docs/change-request/).
@@ -42,7 +43,7 @@ docs/       prd-lite.md · rfp-response.md · adr/ · diagrams/
             task-cards.md (D1) · discovery-questions.md (D2)
             assumptions.md (D3) · data-contracts/ (D4)
 data/       inventory.md · inventory.py · transforms/ · synthetic/prompts/ · raw/ (git-ignored)
-services/   api/ · agent/ · scheduling/ · records/ · scribe/
+services/   api/ · agent/ · mcp/ · scheduling/ · records/ · scribe/
 evals/      sets/ · runs/ · report.md
 infra/      docker-compose.yml · deployment-adr.md
 memo/       executive-memo.md
@@ -110,6 +111,30 @@ shared upload volume. Ops shows queue depth and oldest queued age from `ingest_j
 when that table has rows.
 
 The copied repo-root `.env` supplies `SAHYOG_DEMO_AUTH=1` for local runs; do not set it in production. Supply `OPENROUTER_API_KEY` and the model environment variables there as well. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled by `.env`).
+
+### MCP scheduling and stock
+
+The API mounts the Streamable HTTP MCP server at `http://localhost:8000/mcp/`. Configure
+`MCP_APPROVED_AGENTS` in the local environment with the exact `X-Agent-Id` values your
+demo clients will send; the `.env.example` values are demo-only. The server requires
+the same demo bearer tokens as the API on every MCP HTTP request. This is not production
+authentication. Run `python tools/migrate.py` to apply migration 013, which allows the
+ops role in audit events.
+
+The MCP tools share the API's scheduling store, `book_slot()` idempotency, W3 stock
+adapter, patient/IP rate limiter, audit table and trace exporter. See
+[docs/mcp.md](docs/mcp.md) for tool schemas, role boundaries and client setup, and
+[ADR-006](docs/adr/ADR-006-mcp-tool-server.md) for the architecture decision. To run
+the server separately, use `python -m services.mcp.server` (Streamable HTTP on port
+8001). To exercise the mounted API with a small MCP client:
+
+```powershell
+python tools/mcp_demo.py --base-url http://localhost:8000 --agent-id agent-demo
+```
+
+The demo client uses synthetic patient/front-desk bearer tokens and reads no `.env`.
+Production deployments must configure their host/origin allowlists and replace demo
+authentication before exposing the service to agents.
 
 ### When the model is slow or down
 

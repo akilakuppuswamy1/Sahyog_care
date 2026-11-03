@@ -24,6 +24,7 @@ from services.api.ratelimit import RateLimiter
 from services.api.ops import build_ops_summary, build_trace_tree
 from services.agent.w3.stock import NotConfigured
 from services.common.deid import warm_analyzer
+from services.mcp.server import create_mcp_http_app
 
 UPLOAD_ROOT = Path(__file__).resolve().parents[2] / "data" / "uploads"
 
@@ -71,17 +72,35 @@ def w1_response(thread, out):
 
 
 def create_app(deps_factory=build_postgres_deps):
+    transport_app = {}
+
     @asynccontextmanager
     async def lifespan(app):
         warm_analyzer()
         app.state.deps = deps_factory()
+        mcp_app = create_mcp_http_app(lambda: app.state.deps, limiter)
+        transport_app["mcp"] = mcp_app
         try:
-            yield
+            async with mcp_app.app.router.lifespan_context(mcp_app.app):
+                yield
         finally:
+            transport_app.pop("mcp", None)
             app.state.deps.close()
 
     app = FastAPI(lifespan=lifespan)
     limiter = RateLimiter()
+    app.state.rate_limiter = limiter
+
+    async def dispatch_mcp(scope, receive, send):
+        mcp_app = transport_app.get("mcp")
+        if mcp_app is None:
+            await JSONResponse({"detail": "MCP server is not running"}, status_code=503)(
+                scope, receive, send
+            )
+            return
+        await mcp_app(scope, receive, send)
+
+    app.mount("/mcp", dispatch_mcp)
     replays = {}
     upload_replays = {}
 

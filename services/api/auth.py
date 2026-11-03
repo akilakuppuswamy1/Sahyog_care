@@ -27,3 +27,22 @@ def current_user(request: Request, authorization: str | None = Header(default=No
                 raise HTTPException(403, "Role not permitted")
             return request.state.user
     raise HTTPException(401, "Authentication required", headers={"WWW-Authenticate": "Bearer"})
+
+
+def current_mcp_user(request: Request, authorization: str | None) -> tuple[str, str]:
+    token = authorization.partition(" ")[2] if authorization else ""
+    if token.startswith("demo-"):
+        token = token[5:]
+    if token.startswith("staff-"):
+        path = "/frontdesk/mcp"
+    elif token.startswith("ops-"):
+        path = "/ops/mcp"
+    elif token.startswith("doc-"):
+        path = "/scribe/api/mcp"
+    else:
+        path = "/mcp"
+    auth_request = Request({**request.scope, "path": path})
+    user = current_user(auth_request, authorization)
+    request.state.user = user
+    request.state.role = auth_request.state.role
+    return user, request.state.role
