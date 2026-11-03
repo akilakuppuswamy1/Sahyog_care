@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 import pytest
 
 from services.agent import llm as llm_module
-from services.agent.llm import ModelUnavailable, OpenRouterLLM
+from services.agent.llm import ModelError, ModelUnavailable, OpenRouterLLM
 
 
 class FakeResponse:
@@ -72,6 +72,45 @@ def test_workflow_deadline_and_hedge_defaults(monkeypatch):
     assert llm_module._workflow_seconds("LLM_DEADLINE_S", "w2", 6.0) == 6.0
     assert llm_module._env_seconds("LLM_HEDGE_AFTER_S_W1", 2.0) == 2.0
     assert llm_module._env_seconds("LLM_HEDGE_AFTER_S_W2", 3.0) == 3.0
+
+
+def test_load_test_stub_requires_demo_auth(monkeypatch):
+    monkeypatch.setenv("LLM_STUB", "1")
+    monkeypatch.setenv("SAHYOG_DEMO_AUTH", "0")
+    with pytest.raises(ModelError, match="requires SAHYOG_DEMO_AUTH=1"):
+        OpenRouterLLM(workflow="w1")
+
+
+def test_load_test_stub_is_deterministic_configurable_and_provenanced(monkeypatch):
+    monkeypatch.setenv("LLM_STUB", "1")
+    monkeypatch.setenv("SAHYOG_DEMO_AUTH", "1")
+    monkeypatch.setenv("LLM_STUB_LATENCY_MS", "0")
+    monkeypatch.setattr(llm_module, "analyzer", lambda: object())
+    calls = []
+
+    def prepare(system, user):
+        calls.append(("prepare", system, user))
+        return system, user, {}, 2.5
+
+    def restore(response, token_map):
+        calls.append(("restore", token_map))
+        return response
+
+    monkeypatch.setattr(llm_module, "prepare_egress", prepare)
+    monkeypatch.setattr(llm_module, "reidentify", restore)
+    llm = OpenRouterLLM(workflow="w1")
+    first = llm.complete_json("system", "synthetic input", purpose="w1.match", trace_id="load-1")
+    second = llm.complete_json("system", "synthetic input", purpose="w1.match", trace_id="load-1")
+
+    assert first == second
+    assert first["specialty"] == "SP07" and 0 <= first["confidence"] <= 1
+    assert len(calls) == 4
+    assert llm.usage.calls == 2
+    assert llm_module.load_test_stub_provenance()["mode"] == "fixed"
+    monkeypatch.setenv("LLM_STUB_LATENCY_MS", "")
+    provenance = llm_module.load_test_stub_provenance()
+    assert provenance["mode"] == "sampled_p50_p95"
+    assert provenance["workflows"]["w3"]["run"] == "w3-20261103-114035.json"
 
 
 def test_provider_distinct_hedge_records_response_provider(monkeypatch):

@@ -2,6 +2,7 @@
 import logging
 import hashlib
 import json
+import os
 import time
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -11,7 +12,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
@@ -50,7 +51,13 @@ class Resume(StrictRequest):
 
 class Ask(StrictRequest):
     question: str = Field(min_length=1, max_length=20000)
-    subject_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class CaregiverConsent(StrictRequest):
+    caregiver_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    scope: list[Literal["records", "appointments", "signed_notes"]] = Field(min_length=1, max_length=3)
+    purpose: str = Field(min_length=1, max_length=256)
+    expires_at: datetime
 
 
 class ScribeDraft(StrictRequest):
@@ -101,8 +108,6 @@ def create_app(deps_factory=build_postgres_deps):
         await mcp_app(scope, receive, send)
 
     app.mount("/mcp", dispatch_mcp)
-    replays = {}
-    upload_replays = {}
 
     def write_key(request):
         key = request.headers.get("Idempotency-Key", "")
@@ -111,9 +116,12 @@ def create_app(deps_factory=build_postgres_deps):
         return key
 
     def limit(request, user, kind):
-        retry = limiter.check(user, request.client.host if request.client else "unknown", kind)
+        deps = request.app.state.deps
+        retry = limiter.check(
+            user, request.client.host if request.client else "unknown", kind,
+            pool=getattr(deps, "rate_limit_pool", None),
+        )
         if retry:
-            deps = request.app.state.deps
             with deps.lock:
                 deps.store.audit("rate_limited", "api", request.state.trace_id, user,
                                  kind, request.state.trace_id, {"bucket": kind})
@@ -131,14 +139,30 @@ def create_app(deps_factory=build_postgres_deps):
         status = 500
         deps = getattr(request.app.state, "deps", None)
         tracer = getattr(deps, "tracer", None)
+        trace_path = request.url.path
+        if trace_path.startswith("/records/documents/"):
+            trace_path = "/records/documents/{doc_id}"
+        elif trace_path.startswith("/records/consents/"):
+            trace_path = "/records/consents/{caregiver_id}"
         try:
-            with trace_span(deps, "http", f"{request.method} {request.url.path}", "",
+            with trace_span(deps, "http", f"{request.method} {trace_path}", "",
                             request.state.trace_id) as http_span:
                 try:
                     response = await call_next(request)
-                except Exception:
+                except Exception as exc:
+                    diagnostic = getattr(exc, "diag", None)
+                    logger.error(
+                        "Request failed: trace_id=%s path=%s error_type=%s db_column=%s db_table=%s db_error=%s",
+                        request.state.trace_id, request.url.path, type(exc).__name__,
+                        getattr(diagnostic, "column_name", None),
+                        getattr(diagnostic, "table_name", None),
+                        getattr(diagnostic, "message_primary", None),
+                    )
                     response = JSONResponse({"detail": "Internal server error"}, status_code=500)
                 status = response.status_code
+                replica_id = os.environ.get("SCALE_REPLICA_ID")
+                if replica_id:
+                    response.headers["X-Replica-ID"] = replica_id
                 if status >= 500:
                     http_span.set_status("error") if tracer else None
                 elif getattr(request.state, "degraded", False):
@@ -172,6 +196,10 @@ def create_app(deps_factory=build_postgres_deps):
             Path(__file__).parent / "static" / filename,
             media_type="text/html; charset=utf-8",
         )
+
+    @app.get("/static/sahyog.css")
+    def shared_css():
+        return FileResponse(Path(__file__).parent / "static" / "sahyog.css", media_type="text/css; charset=utf-8")
 
     @app.get("/ops")
     def ops_page():
@@ -369,7 +397,15 @@ def create_app(deps_factory=build_postgres_deps):
         key = write_key(request)
         limit(request, user, "read")
         deps = request.app.state.deps
-        thread, claimed = deps.w1_requests.claim(user, key, uuid4().hex)
+        fingerprint = hashlib.sha256(json.dumps(
+            {"text": body.text, "age": body.age}, ensure_ascii=False,
+            sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        thread, claimed, matches = deps.w1_requests.claim(
+            user, key, uuid4().hex, fingerprint,
+        )
+        if not matches:
+            raise HTTPException(409, "Idempotency key belongs to another action")
         request.state.trace_id = thread
         request.state.thread_id = thread
         if deps.tracer:
@@ -402,13 +438,34 @@ def create_app(deps_factory=build_postgres_deps):
             request.state.thread_id = thread_id
             if deps.tracer:
                 deps.tracer.set_trace_id(thread_id)
-            if (user, key) in replays:
-                result = replays[user, key]
-                if result["thread_id"] != thread_id:
+            fingerprint = hashlib.sha256(json.dumps(
+                {"thread_id": thread_id, "value": body.value},
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            replay = deps.replay_requests.get("w1_resume", user, key)
+            if replay is not None:
+                if replay["identity"] != thread_id or replay["fingerprint"] != fingerprint:
                     raise HTTPException(409, "Idempotency key belongs to another action")
-                return result
+                if replay["status"] == "complete":
+                    return replay["response"]
+                if state.values.get("booking_id") and state.values.get("idempotency_key") == key:
+                    result = w1_response(thread_id, state.values)
+                    deps.replay_requests.complete("w1_resume", user, key, result)
+                    return result
             if state.values.get("booking_id") and state.values.get("idempotency_key") == key:
-                return w1_response(thread_id, state.values)
+                result = w1_response(thread_id, state.values)
+                _, claimed = deps.replay_requests.claim(
+                    "w1_resume", user, key, thread_id, fingerprint,
+                )
+                if claimed:
+                    deps.replay_requests.complete("w1_resume", user, key, result)
+                else:
+                    replay = deps.replay_requests.get("w1_resume", user, key)
+                    if replay["status"] == "running":
+                        deps.replay_requests.complete("w1_resume", user, key, result)
+                    else:
+                        result = replay["response"]
+                return result
             if not any(t.interrupts for t in state.tasks):
                 raise HTTPException(409, "Thread is not paused")
             booking = any(i.value.get("type") == "pick_slot"
@@ -416,24 +473,38 @@ def create_app(deps_factory=build_postgres_deps):
             limit(request, user, "book" if booking else "read")
             if booking and body.value not in {c["slot_id"] for c in state.values.get("candidates", [])}:
                 raise HTTPException(400, "Choose one of the offered slots")
-            with trace_span(deps, "node", "triage_turn", "w1", thread_id) as span:
-                out = deps.w1.invoke(Command(resume=body.value, update={"idempotency_key": key}), cfg)
-                if out.get("degraded"):
-                    span.set_status("degraded") if deps.tracer else None
-            replays[user, key] = w1_response(thread_id, out)
+            replay, claimed = deps.replay_requests.claim(
+                "w1_resume", user, key, thread_id, fingerprint,
+            )
+            if replay["identity"] != thread_id or replay["fingerprint"] != fingerprint:
+                raise HTTPException(409, "Idempotency key belongs to another action")
+            if not claimed:
+                if replay["status"] == "complete":
+                    return replay["response"]
+                raise HTTPException(409, "An action with this Idempotency-Key is still in progress")
+            try:
+                with trace_span(deps, "node", "triage_turn", "w1", thread_id) as span:
+                    out = deps.w1.invoke(Command(resume=body.value, update={"idempotency_key": key}), cfg)
+                    if out.get("degraded"):
+                        span.set_status("degraded") if deps.tracer else None
+                result = w1_response(thread_id, out)
+                deps.replay_requests.complete("w1_resume", user, key, result)
+            except Exception:
+                deps.replay_requests.release("w1_resume", user, key)
+                raise
             request.state.model_route = out.get("route")
             request.state.degraded = bool(out.get("degraded", False))
-        return w1_response(thread_id, out)
+        return result
 
     @app.post("/w2/ask")
     def ask(body: Ask, request: Request, user: str = Depends(current_user)):
         limit(request, user, "read")
-        subject = body.subject_id or user
+        subject = request.state.patient_id
         deps = request.app.state.deps
         with trace_span(deps, "node", "record_answer", "w2", request.state.trace_id) as span:
             with deps.lock:
                 out = deps.w2.invoke(dict(actor_id=user, subject_id=subject,
-                                         actor_role="patient" if subject == user else "caregiver",
+                                         actor_role=request.state.role,
                                          question=body.question, trace_id=request.state.trace_id))
             if out.get("degraded"):
                 span.set_status("degraded") if deps.tracer else None
@@ -507,19 +578,30 @@ def create_app(deps_factory=build_postgres_deps):
         if not hasattr(deps.store, "conn") or deps.embedder is None:
             raise HTTPException(503, "Document ingestion unavailable")
         fingerprint = hashlib.sha256(data).hexdigest()
-        previous = upload_replays.get((user, key))
+        previous = deps.replay_requests.get("upload", user, key)
         if previous:
-            if previous[0] != fingerprint: raise HTTPException(409, "Idempotency key belongs to another upload")
-            return previous[1]
-        from services.records.ingest import register
-        doc = uuid4().hex
-        root = UPLOAD_ROOT
-        path = root / user / (doc + ".pdf")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        manifest = dict(doc_id=doc, patient_id=user, type="other", file=path.name,
-                        path=str(path), uri=path.as_uri(), title="Uploaded report", date=None)
+            if previous["identity"] != "pdf" or previous["fingerprint"] != fingerprint:
+                raise HTTPException(409, "Idempotency key belongs to another upload")
+            if previous["status"] == "complete":
+                return previous["response"]
+        previous, claimed = deps.replay_requests.claim(
+            "upload", user, key, "pdf", fingerprint,
+        )
+        if previous["identity"] != "pdf" or previous["fingerprint"] != fingerprint:
+            raise HTTPException(409, "Idempotency key belongs to another upload")
+        if not claimed:
+            if previous["status"] == "complete":
+                return previous["response"]
+            raise HTTPException(409, "An upload with this Idempotency-Key is still in progress")
         try:
+            from services.records.ingest import register
+            doc = uuid4().hex
+            root = UPLOAD_ROOT
+            path = root / user / (doc + ".pdf")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            manifest = dict(doc_id=doc, patient_id=user, type="other", file=path.name,
+                            path=str(path), uri=path.as_uri(), title="Uploaded report", date=None)
             with deps.lock, deps.store.conn.transaction():
                 # Serialize identical content across API instances, scoped to its owner.
                 deps.store.conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,1))", (user + fingerprint,))
@@ -528,20 +610,27 @@ def create_app(deps_factory=build_postgres_deps):
                     (user, fingerprint)).fetchone()
                 if existing:
                     path.unlink(missing_ok=True)
-                    return dict(job_id=str(existing[0]), doc_id=existing[1], status=existing[2])
+                    result = dict(job_id=str(existing[0]), doc_id=existing[1], status=existing[2])
+                    deps.replay_requests.complete("upload", user, key, result)
+                    return result
                 register(deps.store.conn, manifest)
-                deps.store.conn.execute("UPDATE document SET content_hash=%s WHERE doc_id=%s", (fingerprint,doc))
+                deps.store.conn.execute(
+                    "UPDATE document SET content_hash=%s, source='patient_upload' WHERE doc_id=%s",
+                    (fingerprint, doc),
+                )
                 job_id = uuid4()
                 deps.store.conn.execute("INSERT INTO ingest_job(job_id,doc_id,patient_id) VALUES (%s,%s,%s)", (job_id,doc,user))
+            # Only explicitly injected test dependencies may execute in-process.
+            if deps.upload_ingest is not None:
+                deps.upload_ingest(manifest)
+            result = dict(job_id=str(job_id), doc_id=doc, status="queued")
+            deps.replay_requests.complete("upload", user, key, result)
+            return result
         except Exception:
-            path.unlink(missing_ok=True)
+            if "path" in locals():
+                path.unlink(missing_ok=True)
+            deps.replay_requests.release("upload", user, key)
             raise
-        # Only explicitly injected test dependencies may execute in-process.
-        if deps.upload_ingest is not None:
-            deps.upload_ingest(manifest)
-        result = dict(job_id=str(job_id), doc_id=doc, status="queued")
-        upload_replays[user, key] = (fingerprint, result)
-        return result
 
     @app.get("/records/api/jobs/{job_id}")
     def job_status(job_id: UUID, request: Request, user: str = Depends(current_user)):
@@ -562,6 +651,74 @@ def create_app(deps_factory=build_postgres_deps):
             result = fd.rows(deps.store.conn, "SELECT doc_id,title,ingest_status,error,uploaded_at FROM document WHERE patient_id=%s ORDER BY uploaded_at DESC", (user,))
             deps.store.audit("read", "document", "list", user, "documents", request.state.trace_id)
             return [dict(r, uploaded_at_display=ist(r["uploaded_at"])) for r in result]
+
+    @app.delete("/records/documents/{doc_id}", status_code=204)
+    def erase_document(doc_id: str, request: Request, user: str = Depends(current_user)):
+        from services.records.erasure import ErasureError, erase_upload
+
+        deps = request.app.state.deps
+        if not hasattr(deps.store, "conn"):
+            raise HTTPException(503, "Document erasure unavailable")
+        try:
+            with deps.lock, trace_span(
+                deps, "tool", "erase_upload", "records", request.state.trace_id
+            ):
+                erase_upload(
+                    deps.store.conn,
+                    patient_id=user,
+                    doc_id=doc_id,
+                    trace_id=request.state.trace_id,
+                    upload_root=UPLOAD_ROOT,
+                )
+        except ErasureError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        return Response(status_code=204)
+
+    @app.post("/records/consents", status_code=201)
+    def grant_consent(body: CaregiverConsent, request: Request, user: str = Depends(current_user)):
+        from services.records.erasure import grant_caregiver_consent
+
+        if body.expires_at.tzinfo is None or body.expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(422, "expires_at must be a future timezone-aware timestamp")
+        if len(set(body.scope)) != len(body.scope):
+            raise HTTPException(422, "scope entries must be unique")
+        deps = request.app.state.deps
+        if not hasattr(deps.store, "conn"):
+            raise HTTPException(503, "Caregiver consent unavailable")
+        with deps.lock, trace_span(
+            deps, "tool", "grant_caregiver_consent", "records", request.state.trace_id
+        ):
+            grant_caregiver_consent(
+                deps.store.conn,
+                patient_id=user,
+                caregiver_id=body.caregiver_id,
+                scope=body.scope,
+                purpose=body.purpose,
+                expires_at=body.expires_at,
+                trace_id=request.state.trace_id,
+            )
+        return {"status": "granted"}
+
+    @app.delete("/records/consents/{caregiver_id}", status_code=204)
+    def withdraw_consent(caregiver_id: str, request: Request, user: str = Depends(current_user)):
+        from services.records.erasure import ErasureError, withdraw_caregiver_consent
+
+        deps = request.app.state.deps
+        if not hasattr(deps.store, "conn"):
+            raise HTTPException(503, "Caregiver consent unavailable")
+        try:
+            with deps.lock, trace_span(
+                deps, "tool", "withdraw_caregiver_consent", "records", request.state.trace_id
+            ):
+                withdraw_caregiver_consent(
+                    deps.store.conn,
+                    patient_id=user,
+                    caregiver_id=caregiver_id,
+                    trace_id=request.state.trace_id,
+                )
+        except ErasureError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        return Response(status_code=204)
 
     @app.get("/")
     def index(request: Request):

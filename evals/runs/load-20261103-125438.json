@@ -1,0 +1,192 @@
+{
+  "meta": {
+    "run_id": "20261103-125438",
+    "started_at": "2026-11-03T12:54:38.651282+00:00",
+    "finished_at": "2026-11-03T13:09:37.942538+00:00",
+    "duration_seconds": 899.292,
+    "requested_rate_per_hour": 1400,
+    "scheduled_http_requests": 350,
+    "actual_http_requests": 450,
+    "config": {
+      "base_url": "http://127.0.0.1:8080",
+      "rate_per_hour": 1400,
+      "duration_minutes": 15,
+      "patient_limit": 100,
+      "replicas": 2,
+      "concurrency": 24,
+      "timeout_seconds": 60,
+      "seed": 0,
+      "burst": true,
+      "allow_real_model": false
+    },
+    "burst": {
+      "enabled": true,
+      "peak_multiplier": 3,
+      "peak_seconds": 120
+    },
+    "traffic_mix": {
+      "w1_triage_and_booking": 0.3,
+      "w2_record_question": 0.25,
+      "w3_note_draft": 0.15,
+      "upload": 0.1,
+      "ops_read": 0.2
+    },
+    "configured_replicas": 2,
+    "observed_replicas": [
+      "api1",
+      "api2"
+    ],
+    "model_mode": "load-test stub",
+    "model_latency": {
+      "mode": "sampled_p50_p95",
+      "tail_probability": 0.05,
+      "workflows": {
+        "w1": {
+          "run": "w1-20261103-071432-graph.json",
+          "p50_ms": 60,
+          "p95_ms": 2870
+        },
+        "w2": {
+          "run": "w2-20261103-104837.json",
+          "p50_ms": 1000,
+          "p95_ms": 3560
+        },
+        "w3": {
+          "run": "w3-20261103-114035.json",
+          "p50_ms": 2413,
+          "p95_ms": 6583
+        }
+      }
+    },
+    "model_latency_note": "LLM calls are stubbed; de-identification, rules, retrieval, database, tracing, and upload ingestion queue paths remain real."
+  },
+  "routes": {
+    "GET /ops/api/summary": {
+      "count": 83,
+      "p50_ms": 42.67,
+      "p95_ms": 158.502,
+      "p99_ms": 4964.393,
+      "rps": 0.0923,
+      "errors": 0,
+      "error_rate": 0.0,
+      "rate_limited": 0,
+      "degraded_rate": 0.0,
+      "target_ms": 4000,
+      "pass": true
+    },
+    "POST /records/upload": {
+      "count": 32,
+      "p50_ms": 36.561,
+      "p95_ms": 198.936,
+      "p99_ms": 538.201,
+      "rps": 0.0356,
+      "errors": 0,
+      "error_rate": 0.0,
+      "rate_limited": 0,
+      "degraded_rate": 0.0,
+      "target_ms": 4000,
+      "pass": true
+    },
+    "POST /scribe/api/drafts": {
+      "count": 52,
+      "p50_ms": 2543.183,
+      "p95_ms": 7196.145,
+      "p99_ms": 8155.248,
+      "rps": 0.0578,
+      "errors": 18,
+      "error_rate": 0.3462,
+      "rate_limited": 0,
+      "degraded_rate": 0.0,
+      "target_ms": 20000,
+      "pass": true
+    },
+    "POST /w1/triage": {
+      "count": 108,
+      "p50_ms": 193.257,
+      "p95_ms": 3025.206,
+      "p99_ms": 6093.371,
+      "rps": 0.1201,
+      "errors": 0,
+      "error_rate": 0.0,
+      "rate_limited": 0,
+      "degraded_rate": 0.0,
+      "target_ms": 4000,
+      "pass": true
+    },
+    "POST /w1/{thread_id}/resume": {
+      "count": 108,
+      "p50_ms": 28.091,
+      "p95_ms": 1037.923,
+      "p99_ms": 2779.442,
+      "rps": 0.1201,
+      "errors": 84,
+      "error_rate": 0.7778,
+      "rate_limited": 84,
+      "degraded_rate": 0.0,
+      "target_ms": 4000,
+      "pass": true
+    },
+    "POST /w2/ask": {
+      "count": 67,
+      "p50_ms": 1271.582,
+      "p95_ms": 3742.884,
+      "p99_ms": 4787.205,
+      "rps": 0.0745,
+      "errors": 0,
+      "error_rate": 0.0,
+      "rate_limited": 0,
+      "degraded_rate": 0.0,
+      "target_ms": 8000,
+      "pass": true
+    }
+  },
+  "workflows": {
+    "w1": {
+      "count": 108,
+      "p50_ms": 224.898,
+      "p95_ms": 3108.817,
+      "p99_ms": 7136.687,
+      "rps": 0.1201,
+      "errors": 84,
+      "error_rate": 0.7778,
+      "rate_limited": 84,
+      "degraded_rate": 0.0,
+      "target_ms": 4000,
+      "pass": true
+    },
+    "w2": {
+      "count": 67,
+      "p50_ms": 1271.64,
+      "p95_ms": 3742.978,
+      "p99_ms": 4787.277,
+      "rps": 0.0745,
+      "errors": 0,
+      "error_rate": 0.0,
+      "rate_limited": 0,
+      "degraded_rate": 0.0,
+      "target_ms": 8000,
+      "pass": true
+    },
+    "w3": {
+      "count": 52,
+      "p50_ms": 2543.273,
+      "p95_ms": 7196.229,
+      "p99_ms": 8155.314,
+      "rps": 0.0578,
+      "errors": 18,
+      "error_rate": 0.3462,
+      "rate_limited": 0,
+      "degraded_rate": 0.0,
+      "target_ms": 20000,
+      "pass": true
+    }
+  },
+  "summary": {
+    "requests": 450,
+    "error_rate": 0.2267,
+    "rate_429": 0.1867,
+    "degraded_rate": 0.0,
+    "requests_per_second": 0.5004
+  },
+  "status": "PASS"
+}

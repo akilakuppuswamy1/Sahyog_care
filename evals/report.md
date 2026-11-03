@@ -59,6 +59,7 @@ Only the latest held-out run for current prompt `w2-faithfulness-v2.1` with kapp
 |---|---|---:|---:|---:|---:|
 | EGRESS | not recorded | not measured | not measured | not measured | not measured |
 | EGRESS | not recorded | not measured | not measured | not measured | not measured |
+| INGEST | 20261103-093833-562874 | not measured | not measured | not measured | not measured |
 | JUDGE | 20261103-033829-567449 | not measured | not measured | not measured | not measured |
 | JUDGE | 20261103-040855-585040 | not measured | not measured | not measured | not measured |
 | JUDGE | 20261103-040948-338579 | not measured | not measured | not measured | not measured |
@@ -108,6 +109,7 @@ Only the latest held-out run for current prompt `w2-faithfulness-v2.1` with kapp
 |---|---|---|---|---:|---:|
 | evals/runs/egress-20261103-010825.json | not recorded | not recorded | not recorded / not recorded | not measured | not measured |
 | evals/runs/egress-20261103-051910.json | not recorded | not recorded | not recorded / not recorded | not measured | not measured |
+| evals/runs/ingest-bench-20261103-093833-562874.json | 20261103-093833-562874 | not recorded | not recorded / not recorded | not measured | not measured |
 | evals/runs/judge-calibration-20261103-033829-567449.json | 20261103-033829-567449 | not recorded | not recorded / not recorded | not measured | not measured |
 | evals/runs/judge-calibration-20261103-040855-585040.json | 20261103-040855-585040 | not recorded | not recorded / not recorded | not measured | not measured |
 | evals/runs/judge-calibration-20261103-040948-338579.json | 20261103-040948-338579 | not recorded | not recorded / not recorded | not measured | not measured |
@@ -146,6 +148,19 @@ Only the latest held-out run for current prompt `w2-faithfulness-v2.1` with kapp
 ## Cost worksheet (p.34)
 
 See the generated [cost worksheet](../docs/cost-sheet.md) for measured saved-run token totals, workflow-specific price formulas, the consultation-cost scenario and documented gaps. Generate it with `python tools/build_cost_sheet.py`; no evaluation is run.
+
+## Latest load test
+
+Not measured; run `python tools/load_test.py` against the scale profile to create a saved load run.
+
+## Latest ingest benchmark
+
+Saved offline benchmark: [evals/runs/ingest-bench-20261103-093833-562874.json](runs/ingest-bench-20261103-093833-562874.json) (50 synthetic documents).
+
+| Mode | Docs/s | p95 per document (s) | Peak concurrency | Failures |
+|---|---:|---:|---:|---:|
+| Sequential | 3.068 | 0.5641 | 1 | 0 |
+| Parallel | 6.452 | 1.4437 | 4 | 0 |
 
 ## Misses and incidents
 

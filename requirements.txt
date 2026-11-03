@@ -2,6 +2,7 @@
 pydantic==2.13.5          # checked 2026-11-02 (installed version)
 pandas>=2.3               # checked 2026-11-02
 pytest>=8                 # checked 2026-11-02
+PyYAML>=6.0                # parses Compose configuration in tests
 psycopg[binary]>=3.2      # DB tests; not verified here (PyPI unreachable from the build sandbox)
 presidio-analyzer==2.2.364   # pack p.39; transcription scrub
 presidio-anonymizer       # version to pin after our own check

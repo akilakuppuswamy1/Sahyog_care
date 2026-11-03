@@ -141,11 +141,20 @@ def test_body_cannot_supply_patient(client, path, body):
     assert client.post(path, headers=token(), json={**body, "patient_id": "PT-B"}).status_code == 422
 
 
+def test_w2_patient_context_cannot_be_supplied_in_request_body(client):
+    response = client.post(
+        "/w2/ask",
+        headers=token("PT-A"),
+        json={"question": "Hb?", "subject_id": "PT-B"},
+    )
+    assert response.status_code == 422
+
+
 def test_consent_and_audit_scope(client):
-    out = client.post('/w2/ask', headers=token(), json={"question": "Hb?", "subject_id": "PT-B"}).json()
+    out = client.post('/w2/ask', headers=token("caregiver-PT-B-for-PT-A"),
+                      json={"question": "Hb?"}).json()
     assert out['route'] == 'refuse_consent'
     assert set(out) == {'route', 'reply', 'verified', 'trace_id'}
-    client.post('/w2/ask', headers=token('PT-B'), json={"question": "Hb?", "subject_id": "PT-A"})
     rows = client.get('/records/access-log', headers=token()).json()
     assert rows and all(row['patient_id'] == 'PT-A' for row in rows)
     assert client.get('/records/access-log', headers=token('PT-C')).json() == []
@@ -195,7 +204,7 @@ def test_ops_and_frontdesk_data_routes_require_auth_and_role(client, path):
     assert request(path, headers=token(wrong_staff), **kwargs).status_code == 403
 
 
-def assert_concurrent_triage(client, llm, headers):
+def assert_concurrent_triage(client, llm, headers, resume_client=None):
     """Block a model call on a worker thread while replay and GET run."""
     import time
     from threading import Event
@@ -229,11 +238,15 @@ def assert_concurrent_triage(client, llm, headers):
     assert out['thread_id'] == thread and out['status'] == 'needs_input'
     replay = client.post('/w1/triage', headers=headers, json=body)
     assert replay.json() == out
+    mismatch = client.post('/w1/triage', headers=headers,
+                           json={"text": body["text"] + " changed", "age": body["age"]})
+    assert mismatch.status_code == 409
     assert client.get('/w1/'+thread, headers=headers).json() == out
     slot = out['interrupt']['options'][0]['slot_id']
     resume_headers = {**headers, 'Idempotency-Key': uuid4().hex}
     path = '/w1/'+thread+'/resume'
-    booked = client.post(path, headers=resume_headers, json={'value': slot})
+    booking_client = resume_client or client
+    booked = booking_client.post(path, headers=resume_headers, json={'value': slot})
     assert booked.status_code == 200, booked.text
     assert booked.json()['booking_id'] and booked.json()['status'] == 'done'
     assert client.post(path, headers=resume_headers, json={'value': slot}).json() == booked.json()

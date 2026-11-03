@@ -40,16 +40,22 @@ tokens cannot book. `check_stock` is limited to front-desk and doctor roles.
 `get_booking` permits the owning patient or a staff role; unauthorized and nonexistent
 appointments receive the same response.
 
-The mounted MCP server uses the API's in-process read/book token buckets and the same
-patient/IP keys. The standalone entry point uses the same limiter implementation and
-configured limits but has its own in-process buckets. MCP calls write audit events and
-one argument-free `mcp` tool span per call. Audit metadata includes actor, role, agent
-ID, tool name and trace ID; trace spans contain no tool arguments.
+The mounted and standalone MCP servers use the API's Postgres-backed read/book token
+buckets and the same patient/IP keys. Rate-limit decisions are shared across API
+replicas. MCP calls write audit events and one argument-free `mcp` tool span per call.
+Audit metadata includes actor, role, agent ID, tool name and trace ID; trace spans
+contain no tool arguments.
+
+The scale profile's Nginx uses source-IP affinity for `/mcp/` because the SDK retains
+Streamable HTTP transport sessions in the serving process. Ordinary REST paths remain
+round-robin. If the source IP changes or that API replica is lost, the MCP client must
+initialize a new session; business state and bookings remain in Postgres.
 
 For deployments behind a named host, set `MCP_ALLOWED_HOSTS` and, for clients that send
 an `Origin` header, `MCP_ALLOWED_ORIGINS` to the approved host/origin patterns. The local
 example values in `.env.example` are not a production allowlist. Apply migrations with
-`python tools/migrate.py`; migration 013 adds the `ops` actor role to the audit schema.
+`python tools/migrate.py`; migration 013 adds the `ops` actor role and migration 014
+adds shared API rate buckets and replay claims.
 
 ## Connect a client
 

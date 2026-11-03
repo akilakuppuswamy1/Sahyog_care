@@ -32,4 +32,5 @@ consequences:
 versions_pinned: presidio-analyzer==2.2.364; spacy==3.8.18; en_core_web_sm==3.8.0 (installed locally)
 checked_on: 2026-11-03
 status: proposed
+deployment note: see infra/deployment-adr.md (D6, the deployment ADR with the rescored options matrix).
 ```

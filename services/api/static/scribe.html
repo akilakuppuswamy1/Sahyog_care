@@ -4,60 +4,44 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sahyog clinical scribe</title>
+  <link rel="stylesheet" href="/static/sahyog.css">
   <style>
-    :root { color-scheme: light; font: 16px/1.45 system-ui, sans-serif; color: #172b3a; background: #f4f7f6; }
-    * { box-sizing: border-box; }
-    body { margin: 0 auto; max-width: 1280px; padding: 1.25rem; }
-    h1, h2 { color: #145b55; margin: 0 0 .7rem; }
-    h1 { font-size: 1.65rem; }
-    h2 { font-size: 1.1rem; }
-    .bar, .panel, article { background: white; border: 1px solid #cbd8d5; border-radius: 9px; padding: 1rem; }
-    .bar { display: flex; flex-wrap: wrap; align-items: end; gap: .65rem; margin-bottom: 1rem; }
-    .bar label { flex: 1 1 220px; }
-    .layout { display: grid; grid-template-columns: minmax(290px, .85fr) minmax(480px, 1.5fr); gap: 1rem; align-items: start; }
-    .stack { display: grid; gap: 1rem; }
-    label { display: grid; gap: .3rem; font-weight: 600; }
-    input, select, textarea, button { font: inherit; }
-    input, select, textarea { width: 100%; padding: .55rem .65rem; border: 1px solid #9aada9; border-radius: 5px; background: white; color: inherit; }
-    textarea { min-height: 7rem; resize: vertical; }
+    h3 { margin: var(--s2) 0 var(--s1); }
+    .layout { display: grid; grid-template-columns: minmax(290px, .85fr) minmax(480px, 1.5fr); gap: var(--s2); align-items: start; }
+    .stack { display: grid; gap: var(--s2); }
     .soap textarea { min-height: 5.2rem; }
-    button { border: 0; border-radius: 5px; padding: .58rem .85rem; background: #145b55; color: white; cursor: pointer; font-weight: 650; }
-    button.secondary { background: #52656e; }
-    button.reject { background: #a4262c; }
-    button:disabled { opacity: .55; cursor: wait; }
-    .row { display: flex; flex-wrap: wrap; gap: .55rem; align-items: end; }
+    button.reject { background: var(--bad); border-color: var(--bad); }
+    .row { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: end; }
     .row > label { flex: 1 1 180px; }
-    .medicines { display: grid; gap: .7rem; }
-    .medicine { border: 1px solid #d5dfdc; border-radius: 7px; padding: .75rem; display: grid; gap: .6rem; }
-    .medicine-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: .55rem; }
-    .badge { display: inline-block; border-radius: 4px; background: #e7f1ee; color: #145b55; padding: .15rem .4rem; font-size: .86rem; font-weight: 700; }
-    .badge.stock { background: #fde8e7; color: #a4262c; }
-    .badge.flag { background: #fff1c2; color: #785600; }
-    .badge.unknown { background: #e4e7e9; color: #52656e; }
-    .out-of-stock { color: #a4262c; font-weight: 650; }
-    .muted { color: #52656e; font-size: .92rem; }
-    .history { margin: .35rem 0 0; padding-left: 1.25rem; }
-    .status { min-height: 1.5rem; color: #a4262c; font-weight: 600; }
-    .signed { border-left: 4px solid #176b3a; padding-left: .8rem; overflow-wrap: anywhere; }
+    .medicines { display: grid; gap: var(--s2); }
+    .medicine { border: 1px solid var(--line); border-radius: 8px; padding: var(--s2); display: grid; gap: var(--s1); }
+    .medicine-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: var(--s1); }
+    .out-of-stock { color: var(--bad); font-weight: 650; }
+    .history { margin: 4px 0 0; padding-left: 1.25rem; }
+    .status { min-height: 1.5rem; color: var(--bad); font-weight: 600; }
+    .signed { border-left: 4px solid var(--good); padding-left: var(--s2); overflow-wrap: anywhere; }
     .signed code { word-break: break-all; }
-    .empty { color: #52656e; }
-    @media (max-width: 760px) {
-      body { padding: .7rem; }
-      .layout { grid-template-columns: 1fr; }
-    }
+    .empty { color: var(--muted); }
+    .layout > .stack, .layout > .panel { min-width: 0; }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } .medicine-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
+<header class="site-header"><div class="inner"><div class="brand">Sahyog Care Companion <span class="demo-badge">Demo · synthetic data</span></div>
+<nav class="site-nav" aria-label="Main"><a href="/">Patient</a><a href="/frontdesk">Front desk</a><a href="/scribe" aria-current="page">Doctor</a><a href="/ops">Ops</a></nav></div></header>
+<div class="page">
   <h1>Clinical scribe</h1>
-  <form class="bar" id="auth-form">
+  <div class="persona-bar"><span class="label">Sign in as</span><div class="persona-list" id="persona-list"></div>
+  <details><summary>Other identity</summary>
+  <form class="other-row" id="auth-form">
     <label for="doctor-id">Doctor ID
       <input id="doctor-id" required autocomplete="username" placeholder="e.g. DR-0001">
     </label>
     <button>Sign in</button>
     <span class="muted">Demo authentication only</span>
-  </form>
+  </form></details></div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
-  <main class="layout">
+<main class="layout">
     <div class="stack">
       <section class="panel">
         <h2>New draft</h2>
@@ -90,6 +74,7 @@
       <div id="draft-output" class="empty">Generate or open a draft to review it.</div>
     </section>
   </main>
+</div>
   <script>
     const doctorInput = document.getElementById("doctor-id");
     const statusOutput = document.getElementById("status");
@@ -106,6 +91,22 @@
       return result;
     }
 
+    function friendly(error) {
+      const m = String((error && error.message) || "");
+      if (/authentication required|\(401\)/i.test(m)) return "Please choose a sign-in persona above.";
+      if (/role not permitted|\(403\)/i.test(m)) return "This identity cannot use the doctor console. Pick a doctor persona.";
+      if (/failed to fetch|networkerror/i.test(m)) return "We could not reach the server. Please try again in a moment.";
+      if (!m || /^[\[{]/.test(m) || /unexpected token|json/i.test(m)) return "Something went wrong. Please try again.";
+      return m;
+    }
+
+    function chip(text, kind) {
+      const span = document.createElement("span");
+      span.className = `chip ${kind}`;
+      span.textContent = text;
+      return span;
+    }
+
     function makeKey() {
       return globalThis.crypto && crypto.randomUUID
         ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -114,7 +115,7 @@
     async function request(path, options = {}) {
       const response = await fetch(path, options);
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
+      if (!response.ok) throw new Error(typeof data.detail === "string" && data.detail ? data.detail : `Request failed (${response.status})`);
       return data;
     }
 
@@ -164,16 +165,16 @@
         card.className = "medicine";
         const badges = document.createElement("div");
         const stock = document.createElement("span");
-        stock.className = medicine.status === "in_stock" || medicine.status === "out_of_stock"
-          ? "badge" : "badge unknown";
-        stock.textContent = medicine.status === "in_stock" ? "IN STOCK"
-          : medicine.status === "out_of_stock" ? "OUT OF STOCK" : "STOCK UNKNOWN";
+        stock.className = medicine.status === "in_stock" ? "chip in"
+          : medicine.status === "out_of_stock" ? "chip out" : "chip unknown";
+        stock.textContent = medicine.status === "in_stock" ? "Stock: in"
+          : medicine.status === "out_of_stock" ? "Stock: out" : "Stock: unknown";
         badges.append(stock);
         const relatedFlags = flags.filter(flag => flag.field && flag.field.startsWith(`medicines.${index}.`));
         if (relatedFlags.length) {
           const grounding = document.createElement("span");
-          grounding.className = "badge flag";
-          grounding.textContent = "GROUNDING REVIEW";
+          grounding.className = "chip warn";
+          grounding.textContent = "Grounding review";
           badges.append(grounding);
         }
         card.append(badges);
@@ -245,7 +246,8 @@
       if (draft.signed_note) {
         const signed = document.createElement("div");
         signed.className = "signed";
-        signed.textContent = `Signed note v${draft.signed_note.version} · ID ${draft.signed_note.note_id} · `;
+        signed.append(chip("Signed", "signed"), " ");
+        signed.append(`Signed note v${draft.signed_note.version} · ID ${draft.signed_note.note_id} · `);
         const hash = document.createElement("code");
         hash.textContent = draft.signed_note.content_hash;
         signed.append(hash);
@@ -253,7 +255,7 @@
       }
       for (const flag of draft.flags || []) {
         const line = document.createElement("p");
-        line.className = "badge flag";
+        line.className = "chip warn";
         line.textContent = `${flag.kind}: ${flag.message}`;
         draftOutput.append(line);
       }
@@ -309,10 +311,10 @@
             { headers: headers() });
           renderDraft(signedDraft);
         } else {
-          draftOutput.textContent = result.status === "rejected" ? "Draft rejected." : result.status;
+          draftOutput.textContent = result.status === "rejected" ? "Draft rejected." : String(result.status || "Done.");
         }
         statusOutput.textContent = "";
-      } catch (error) { statusOutput.textContent = error.message; }
+      } catch (error) { statusOutput.textContent = friendly(error); }
     }
 
     async function loadFixtures() {
@@ -329,7 +331,7 @@
       const drafts = await request(`/scribe/api/drafts?status=${encodeURIComponent(status)}`,
         { headers: headers() });
       if (!drafts.length) {
-        list.textContent = `No ${status} drafts.`;
+        list.textContent = `No ${status} drafts yet. Generate one from a transcript.`;
         return;
       }
       for (const draft of drafts) {
@@ -341,7 +343,7 @@
           try {
             renderDraft(await request(`/scribe/api/drafts/${encodeURIComponent(draft.draft_id)}`,
               { headers: headers() }));
-          } catch (error) { statusOutput.textContent = error.message; }
+          } catch (error) { statusOutput.textContent = friendly(error); }
         });
         list.append(button);
       }
@@ -350,11 +352,12 @@
     document.getElementById("auth-form").addEventListener("submit", async event => {
       event.preventDefault();
       sessionStorage.setItem(tokenKey, `demo-doc-${doctorInput.value.trim()}`);
+      markPersona();
       statusOutput.textContent = "";
       try {
         await loadFixtures();
         await loadDrafts();
-      } catch (error) { statusOutput.textContent = error.message; }
+      } catch (error) { statusOutput.textContent = friendly(error); }
     });
 
     document.getElementById("fixture-list").addEventListener("change", event => {
@@ -376,18 +379,38 @@
         });
         renderDraft(result.draft);
         await loadDrafts();
-      } catch (error) { statusOutput.textContent = error.message; }
+      } catch (error) { statusOutput.textContent = friendly(error); }
       finally { button.disabled = false; }
     });
 
     document.getElementById("refresh-drafts").addEventListener("click", async () => {
       try { await loadDrafts(); }
-      catch (error) { statusOutput.textContent = error.message; }
+      catch (error) { statusOutput.textContent = friendly(error); }
     });
     document.getElementById("draft-status").addEventListener("change", async () => {
       try { await loadDrafts(); }
-      catch (error) { statusOutput.textContent = error.message; }
+      catch (error) { statusOutput.textContent = friendly(error); }
     });
+
+    const personas = [["Dr. DR-0001", "DR-0001"]];
+    function markPersona() {
+      for (const b of document.querySelectorAll("#persona-list button")) {
+        b.setAttribute("aria-pressed", String(b.dataset.id === doctorInput.value.trim()));
+      }
+    }
+    for (const [label, id] of personas) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "secondary";
+      b.textContent = label;
+      b.dataset.id = id;
+      b.setAttribute("aria-pressed", "false");
+      b.onclick = () => { doctorInput.value = id; document.getElementById("auth-form").requestSubmit(); };
+      document.getElementById("persona-list").append(b);
+    }
+    markPersona();
+    if (doctorInput.value) document.getElementById("auth-form").requestSubmit();
+    else statusOutput.textContent = "Choose a sign-in persona above to load your drafts.";
   </script>
 </body>
 </html>

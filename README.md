@@ -19,6 +19,8 @@ durable queued ingest and a separate worker, shared Presidio de-identification, 
 Postgres tracing and Ops, calibrated W2 judging, and the sourced cost worksheet.
 Pro is the delivery milestone; it does not mean every evaluation target is met or production deployment is ready.
 
+Delivered features: patients can list their documents, erase eligible uploads, and grant or withdraw caregiver consent; hospital-issued reports and signed W3 notes remain protected. Caregiver W2 demo identity is `caregiver-{caregiver_id}-for-{patient_id}` in the bearer token, not a request-body patient selector.
+
 ## Known gaps
 
 - No speech-to-text or audio lifecycle: transcripts are text input.
@@ -30,8 +32,11 @@ Pro is the delivery milestone; it does not mean every evaluation target is met o
   The [judge-zero human review](evals/runs/judge-review-w2-20261103-094651.md) records both an answer defect
   and judge errors in an earlier run; calibration does not make the judge infallible.
 - Remaining Architect items include verified India hosting, encryption at rest, least-privilege database roles,
-  distributed limits, retention validation and recovery drills. The MCP scheduling/stock surface is built, but still
-  uses demo identity and in-process limits. Production identity/booking OTP and SMS delivery also remain unbuilt;
+  retention validation and recovery drills. The MCP scheduling/stock surface and Postgres-backed distributed
+  limits/replay state are built, but the service still uses demo identity. Production identity/booking OTP and SMS
+  delivery also remain unbuilt;
+- The 1,400 requests/hour scale profile and load-test client are implemented, but no target-volume run is claimed
+  until `tools/load_test.py` writes and passes a saved run;
   W3 timeout and trace-purge commands are not scheduled.
 - Booking completion/time and doctor review time remain unmeasured. See [evaluation report](evals/report.md)
   and [D7 residual risks](docs/d7-threat-model.md).
@@ -106,11 +111,22 @@ backoff, and records a safe `last_error` on failure. A disconnected worker's job
 is recoverable; Ctrl+C lets active ingestion finish before stopping. Identical PDF
 content for the same owner reuses its document and job across API restarts. The
 in-process ingest callback is reserved for explicitly injected test dependencies.
+Each worker claims up to `INGEST_BATCH_SIZE` jobs at once (default `8`) and sends
+documents through a bounded LangGraph pool controlled by `INGEST_MAX_CONCURRENCY`
+(default `4`). Failures retry independently; one batch has one parent trace and one
+child span per document. See the [ingest fan-out diagram](docs/diagrams/ingest-fanout.md).
+Tune both settings to available database connections and local model memory.
 The app Compose profile starts `worker` after `migrate` using the API image and
 shared upload volume. Ops shows queue depth and oldest queued age from `ingest_job`
 when that table has rows.
 
-The copied repo-root `.env` supplies `SAHYOG_DEMO_AUTH=1` for local runs; do not set it in production. Supply `OPENROUTER_API_KEY` and the model environment variables there as well. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled by `.env`).
+For an offline synthetic throughput benchmark, set `DATABASE_URL` and run
+`python tools/bench_ingest.py` (50 PDFs by default). It drops an isolated database
+schema and temporary PDF/patient data after comparing sequential and parallel runs.
+`--fake-embedder` runs the validation path with `HashEmbedder`; benchmark runs are
+saved to `evals/runs/ingest-bench-<timestamp>.json` and `.md`.
+
+e model environment variables there as well. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled by `.env`).
 
 ### MCP scheduling and stock
 
@@ -276,3 +292,58 @@ python -m evals.run_w3       # 40 W3 cases; real graph and OpenRouter, writes ev
 ```
 The W3 eval makes model calls and is not part of pytest. Set `W3_STOCK_DIR` if clinic CSVs are stored
 outside `data/synthetic/out/w3/stock`; the API loads only the selected clinic's inventory file.
+
+## Scaling and load test
+
+The local `scale` Compose profile configures Postgres, the records worker, two API replicas
+(`api1` on host port 8001 and `api2` on 8002) and Nginx on port 8080. Prepare the synthetic
+doctor, slot, report, patient, encounter and W3 stock fixtures before running the load test.
+The stock generator needs the existing medicine dataset under `data/raw/`. From the repo root,
+run this PowerShell sequence; it loads generated doctors and slots through `tools/migrate.py`,
+indexes the report fixtures, then creates load-test encounters from those existing patients and
+doctors. The encounter seed is idempotent:
+
+```powershell
+docker compose -f infra/docker-compose.yml up -d --no-build db
+$env:DATABASE_URL = "******localhost:55432/sahyog"
+$env:PYTHON_DOTENV_DISABLED = "1"
+python data/synthetic/generate_doctors.py
+python data/synthetic/generate_slots.py
+python data/synthetic/generate_reports.py --bulk-patients 0
+python data/synthetic/generate_stock.py
+python tools/migrate.py
+python tools/seed_load_test.py
+docker compose -f infra/docker-compose.yml --profile scale build
+docker compose -f infra/docker-compose.yml --profile scale up -d --no-build worker api1 api2 nginx
+Invoke-WebRequest http://127.0.0.1:8001/health
+Invoke-WebRequest http://127.0.0.1:8002/health
+python tools/load_test.py --base-url http://127.0.0.1:8080 --replicas 2
+Start-Process "http://127.0.0.1:8080/ops"
+```
+
+The default test runs a 15-minute mixed workload at 1,400 HTTP requests/hour across W1 triage
+plus resume/booking, W2 record questions, W3 draft creation, PDF uploads and `/ops` reads.
+Every write carries an `Idempotency-Key`; the client selects many synthetic patients and
+doctor encounters from Postgres. The default profile uses a 3x peak for the first two minutes,
+then returns to baseline; pass `--no-burst` to disable it. `--rate-per-hour`,
+`--duration-minutes`, `--patient-limit`, `--concurrency` and `--base-url` are configurable.
+
+Only model calls are stubbed. `LLM_STUB=1` is enabled only in the scale profile and requires
+`SAHYOG_DEMO_AUTH=1`; the API rejects the stub without demo auth. The stub uses deterministic,
+schema-valid responses and samples 95% of call latencies from saved workflow p50 and 5% from
+p95. Sources: W1 [`w1-20261103-071432-graph.json`](evals/runs/w1-20261103-071432-graph.json),
+W2 [`w2-20261103-104837.json`](evals/runs/w2-20261103-104837.json), and W3
+[`w3-20261103-114035.json`](evals/runs/w3-20261103-114035.json). Set `LLM_STUB_LATENCY_MS`
+to a fixed non-negative integer to override sampling. Red-flag rules, Presidio egress and
+restoration, W2 retrieval/verification, Postgres, tracing and the upload queue remain real.
+
+The test writes `evals/runs/load-<timestamp>.json` and `.md` with overall and per-route RPS,
+route p50/p95/p99 and p95 target status, workflow
+p95 vs targets (W1 <4 s, W2 <8 s, W3 <20 s), error/429/degraded rates, observed replica IDs
+and the full non-secret configuration used. It refuses to run against a non-stub API unless
+`--allow-real-model` is explicitly supplied; never use that option for the local scale test.
+`/ops` shows sourced tiles from the latest run; `python tools/build_eval_report.py` includes
+the latest saved load result. Use `--help` for exact options. Stubbed results are not live-model
+latency or answer-quality evidence, and no target is considered met until a saved run passes.
+See [ADR-007](docs/adr/ADR-007-scaling-and-load.md) and the
+[scale deployment diagram](docs/diagrams/deployment-scale.md).

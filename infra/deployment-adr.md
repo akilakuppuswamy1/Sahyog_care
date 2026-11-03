@@ -1,36 +1,69 @@
 # D6: Deployment boundary
 
-The decision is **hybrid**, following [ADR-001](../docs/adr/ADR-001-hybrid-deployment.md), the proposed decision record. Identified data belongs in an India region; only scrubbed text may cross the LLM boundary. This is the target architecture, not a claim that the local demo is hosted in India.
+Path required by pack p.48. Status: Accepted · Date: 3 Nov 2026 · Decision: **hybrid**. Detail and evidence trail: [ADR-001](../docs/adr/ADR-001-hybrid-deployment.md).
 
-## Options
+## Context
 
-Scores: 1 = least favourable, 5 = most favourable. Operations scores reward lower burden; cost scores reward flexibility at Core scale, not a measured price estimate.
+Pack p.32 gives four options: on-premise, private cloud in an India region, public cloud with a public LLM, and hybrid. Gate 2 answers were not received, so the matrix is rescored with working assumptions A07 (vendor terms), A08 (SMS), A11 (audio) and the residency constraint (identified health data never leaves India). The assumptions are in [assumptions.md](../docs/assumptions.md).
 
-| Option | Identified-data residency | Access to current models | Operations burden | Cost shape |
-| --- | --- | --- | --- | --- |
-| On-premise, local models | 5: full local control | 2: constrained by purchased hardware | 1: hospital operates hardware and GPUs | 2: high fixed procurement and staffing |
-| Private cloud, India region, local models | 5: regional stores and inference | 3: models depend on available GPUs | 3: managed infrastructure, inference still operated | 3: recurring provisioned GPU capacity |
-| Public cloud + public LLM, identified prompts | 1: identified data reaches public vendor; rejected | 5: current hosted models | 5: low infrastructure burden | 4: usage based, grows with calls |
-| Hybrid | 5: identified processing in-region, conditional on scrub boundary | 5: current models through adapter | 3: regional estate plus egress controls | 4: regional baseline plus variable LLM calls |
+Scores are the pod's, compared cell by cell with the pack's opening view (p.32). "(rescored)" appears only where the pod's score differs from the pack's, with the reason.
 
-## Egress boundary
+## Scores
+
+Strong / Fair / Weak, with the reason in one line. The pack's opening view follows the table.
+
+| Criterion | On-premise | Private cloud, India region | Public cloud + public LLM | Hybrid |
+|---|---|---|---|---|
+| Identified-data residency | Strong: all data stays on hospital hardware | Strong: stores and inference stay in an India region | Weak: identified prompts would reach the vendor | Strong: identified data stays in-region; holds only while the scrub gate holds, since A07 is unanswered |
+| Access to current models | Weak: open-weight models on bought GPUs only | Fair: open-weight models on rented GPUs | Strong: current hosted models | Strong: current models through one adapter (qwen3 via OpenRouter) |
+| Operations burden | Weak: the hospital runs every server and GPU | Fair: managed estate, inference still operated | Strong: little to run | Fair: in-region estate plus egress controls |
+| Cost at 9,000 a day | Weak (rescored; pack Fair): high fixed procurement and GPU staffing that no saved costing shows paying back at this volume | Fair: recurring provisioned GPU cost | Fair: pay per call, so spend grows with volume | Fair: regional baseline plus variable LLM calls |
+| Time to first value | Weak: hardware procurement comes first | Fair: provisioning needed, no hardware purchase | Strong: fastest to build | Fair: runs locally today, but India-region hosting is not done |
+| Audit and control | Strong: the hospital controls every log | Strong: in-region logs under our control | Weak (rescored; pack Fair): identified prompts leave the boundary and vendor-side handling is unverified (A07) | Strong (on identified data): audit and traces stay in-region; the vendor sees only scrubbed text |
+
+Pack opening view (p.32), for comparison:
+
+| Criterion | On-premise | Private cloud, India | Public cloud + public LLM | Hybrid |
+|---|---|---|---|---|
+| Identified-data residency | Strong | Strong | Weak | Strong |
+| Access to current models | Weak | Fair | Strong | Strong |
+| Operations burden | Weak | Fair | Strong | Fair |
+| Cost at 9,000 a day | Fair | Fair | Fair | Fair |
+| Time to first value | Weak | Fair | Strong | Fair |
+| Audit and control | Strong | Strong | Fair | Strong (on identified data) |
+
+Two cells differ from the pack: on-premise cost (Weak, pack Fair) and public cloud audit and control (Weak, pack Fair). The other 22 cells match.
+
+## Decision
+
+Hybrid. Identified data, embeddings (local bge-m3), Postgres/pgvector, graph state, audit and traces stay in-region. Only text scrubbed by the egress gate goes to OpenRouter providers (qwen3). If anything survives the scrub, the call is refused rather than sent. Re-identification happens in-region.
 
 ```mermaid
 flowchart LR
     subgraph India[India region - target deployment]
-        API[API and workflow graphs] --> DB[(Postgres and patient-filtered SQL)]
+        API[API and workflow graphs] --> DB[(Postgres, pgvector, audit, traces)]
         API --> EMB[Local bge-m3 embeddings]
         API --> SCRUB[Scrub and refuse-to-send gate]
         SCRUB --> MAP[Local token map]
     end
-    SCRUB -->|Only scrubbed text| OR[OpenRouter public LLM]
+    SCRUB -->|Only scrubbed text| OR[OpenRouter providers, qwen3]
     OR -->|Model response| API
 ```
 
-The token map stays local. No map, identified record store, or embedding service is sent to OpenRouter. ADR-001 also defines revisit triggers: degraded W3 draft quality, an India-region vendor endpoint with suitable terms, or identifiers found during replay. A replay leak must stop egress until fixed.
+## Evidence
 
-## Built today vs not yet
+- Decision record: [ADR-001](../docs/adr/ADR-001-hybrid-deployment.md).
+- Egress code: `services/common/deid.py` (Presidio, Indian recognisers, refuse-to-send guard); model calls go through `services/agent/llm.py`.
+- Local embeddings: `services/records/embed.py`.
+- Tests: `services/agent/tests/test_deid.py` (zero-hit replay gate, refuse on surviving identifier, production transport, hedge restoration).
+- Replay tool and saved runs: `tools/egress_replay.py`; [egress-20261103-010825](../evals/runs/egress-20261103-010825.md) and [egress-20261103-051910](../evals/runs/egress-20261103-051910.md) (200 synthetic payloads, zero hits). A finite synthetic replay does not prove complete de-identification.
 
-Built today: Presidio AnalyzerEngine with pinned local spaCy en_core_web_sm and custom Indian recognisers in `services/common/deid.py`; system and user messages scrubbed for every W1/W2/W3 primary and hedge; typed ephemeral in-process token maps; recursive reply restoration before display; original regex plus expanded refuse-to-send guard. Migration 011 adds numeric-only `deid_ms` to model spans. Offline replay [egress-20261103-010825](../evals/runs/egress-20261103-010825.md) has 200 synthetic payloads, zero hits, 100% recall per generated identifier type, and 0% false positives on four clean clinical examples (p95 8.5 ms, max including first-use 17 ms). Local bge-m3 embeddings, patient-filtered SQL and per-workflow routing are built. Demo bearer auth and Compose remain local deployment facilities.
+## Switch triggers
 
-Not yet: India-region hosting, verified vendor zero-retention terms, generalisation of arbitrary contextual quasi-identifiers, OIDC and a load test at 1,400 requests/hour. Statistical name recognition and a finite synthetic replay cannot establish complete de-identification or residency compliance. Keep all token-map processing and restored replies in the regional application process. A replay hit must stop egress until fixed (ADR-001 trigger c).
+1. The vendor will not commit to zero retention, or a regulator rules out cross-border inference on de-identified text: move to private cloud in an India region with self-hosted open-weight models.
+2. Monthly LLM spend exceeds the fixed cost of an in-region GPU host: move to private cloud.
+3. Any egress replay hit: the egress path stops (refuse-to-send) until fixed.
+
+## Honest status
+
+Runs locally via infra/docker-compose.yml today; India-region hosting, encryption at rest and restore drills are not done. Vendor zero-retention terms (A07) are unverified. See also [ADR-007](../docs/adr/ADR-007-scaling-and-load.md) for the scaling profile.

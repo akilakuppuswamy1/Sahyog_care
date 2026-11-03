@@ -146,9 +146,10 @@ class Tracer:
 
     def span(self, kind: SpanKind, name: str, *, workflow: str = "", trace_id: str | None = None,
              model: str | None = None, provider: str | None = None, served_by: str | None = None,
-             tokens_in: int | None = None, tokens_out: int | None = None) -> "_SpanContext":
+             tokens_in: int | None = None, tokens_out: int | None = None,
+             parent_span_id: str | None = None) -> "_SpanContext":
         return _SpanContext(self, kind, name, workflow, trace_id, model, provider, served_by,
-                            tokens_in, tokens_out)
+                            tokens_in, tokens_out, parent_span_id)
 
 
 _ACTIVE_LOCK = RLock()
@@ -157,7 +158,8 @@ _ACTIVE_LOCK = RLock()
 class _SpanContext:
     def __init__(self, tracer: Tracer, kind: SpanKind, name: str, workflow: str,
                  trace_id: str | None, model: str | None, provider: str | None,
-                 served_by: str | None, tokens_in: int | None, tokens_out: int | None) -> None:
+                 served_by: str | None, tokens_in: int | None, tokens_out: int | None,
+                 parent_span_id: str | None) -> None:
         self.tracer = tracer
         self.kind = kind
         self.name = name
@@ -168,12 +170,14 @@ class _SpanContext:
         self.served_by = served_by
         self.tokens_in = tokens_in
         self.tokens_out = tokens_out
+        self.parent_span_id = parent_span_id
         self.active: _ActiveSpan | None = None
 
     def __enter__(self) -> _ActiveSpan:
         parent = self.tracer._active.get()
         trace_id = self.trace_id or (parent.span.trace_id if parent else None) or uuid4().hex
-        parent_span_id = parent.span.span_id if parent and parent.span.trace_id == trace_id else None
+        parent_span_id = self.parent_span_id or (
+            parent.span.span_id if parent and parent.span.trace_id == trace_id else None)
         if parent_span_id is None:
             with _ACTIVE_LOCK:
                 active = self.tracer._active_by_trace.get(trace_id, [])

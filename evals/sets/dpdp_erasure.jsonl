@@ -1,0 +1,7 @@
+{"id":"ERASE-001","scenario":"Patient erases an indexed upload and then asks the same W2 question again.","expected":"The upload's file and derived records are gone; W2 does not retrieve the upload or cite it again."}
+{"id":"CONSENT-001","scenario":"Patient withdraws a caregiver's records consent; the caregiver makes the very next W2 request.","expected":"The request is refused for revoked consent before retrieval or model use."}
+{"id":"ERASE-002","scenario":"Patient requests erasure of a hospital-issued report.","expected":"HTTP 409 with a reason; the report remains unchanged."}
+{"id":"ERASE-003","scenario":"Patient requests erasure of a signed W3 note.","expected":"HTTP 409 with a reason; the immutable signed note remains unchanged."}
+{"id":"ERASE-004","scenario":"Patient erases an eligible upload with stored file, document, chunks/embeddings, PHI token map, and ingest job.","expected":"All associated content and links are removed; filesystem deletion is confined to the upload root."}
+{"id":"AUDIT-001","scenario":"Patient erases an eligible upload and withdraws caregiver consent.","expected":"Each erasure and withdrawal produces an append-only audit event without PHI."}
+{"id":"AUTHZ-001","scenario":"Patient attempts to erase another patient's document.","expected":"HTTP 403; the other patient's file and database records are unchanged."}

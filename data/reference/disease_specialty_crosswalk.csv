@@ -1,42 +1,42 @@
-disease,specialty_id,alternative_specialty_id,red_flag,reviewed_by,reviewed_on
-Fungal infection,SP20,SP01,false,,
-Allergy,SP30,SP01,false,,
-GERD,SP10,SP01,false,,
-Chronic cholestasis,SP11,SP10,false,,
-Drug Reaction,SP30,SP20,false,,
-Peptic ulcer diseae,SP10,SP01,false,,
-AIDS,SP29,SP01,false,,
-Diabetes,SP16,SP01,false,,
-Gastroenteritis,SP10,SP01,false,,
-Bronchial Asthma,SP13,SP30,false,,
-Hypertension,SP03,SP01,false,,
-Migraine,SP05,SP01,false,,
-Cervical spondylosis,SP07,SP08,false,,
-Paralysis (brain hemorrhage),SP05,SP06,true,,
-Jaundice,SP11,SP10,false,,
-Malaria,SP29,SP01,false,,
-Chicken pox,SP29,SP20,false,,
-Dengue,SP29,SP01,false,,
-Typhoid,SP29,SP01,false,,
-hepatitis A,SP11,SP10,false,,
-Hepatitis B,SP11,SP10,false,,
-Hepatitis C,SP11,SP10,false,,
-Hepatitis D,SP11,SP10,false,,
-Hepatitis E,SP11,SP10,false,,
-Alcoholic hepatitis,SP11,SP10,false,,
-Tuberculosis,SP13,SP29,false,,
-Common Cold,SP01,SP22,false,,
-Pneumonia,SP13,SP01,false,,
-Dimorphic hemmorhoids(piles),SP12,SP10,false,,
-Heart attack,SP03,SP04,true,,
-Varicose veins,SP33,SP12,false,,
-Hypothyroidism,SP16,SP01,false,,
-Hyperthyroidism,SP16,SP01,false,,
-Hypoglycemia,SP16,SP01,true,,
-Osteoarthristis,SP07,SP09,false,,
-Arthritis,SP09,SP07,false,,
-(vertigo) Paroymsal  Positional Vertigo,SP22,SP05,false,,
-Acne,SP20,,false,,
-Urinary tract infection,SP15,SP01,false,,
-Psoriasis,SP20,SP09,false,,
-Impetigo,SP20,SP18,false,,
+disease,specialty_id,alternative_specialty_id,red_flag,reviewed_by,reviewed_on,review_note
+Fungal infection,SP20,SP01,false,AK,2026-11-03,Dermatology; GM alt
+Allergy,SP30,SP01,false,AK,2026-11-03,Allergy and Immunology; GM alt
+GERD,SP10,SP01,false,AK,2026-11-03,Gastroenterology; GM alt
+Chronic cholestasis,SP11,SP10,false,AK,2026-11-03,Hepatology is hospital-only; Gastro alt available at clinics
+Drug Reaction,SP30,SP20,false,AK,2026-11-03,Severe reactions caught by symptom red-flag rules; Derm alt
+Peptic ulcer diseae,SP10,SP01,false,AK,2026-11-03,Source spelling kept for join
+AIDS,SP29,SP01,false,AK,2026-11-03,Infectious Diseases; GM alt
+Diabetes,SP16,SP01,false,AK,2026-11-03,Endocrinology; GM alt
+Gastroenteritis,SP10,SP01,false,AK,2026-11-03,Dehydration severity caught by symptom red-flag rules
+Bronchial Asthma,SP13,SP30,false,AK,2026-11-03,Acute breathlessness caught by symptom red-flag rules
+Hypertension,SP03,SP01,false,AK,2026-11-03,Accepted Cardiology first; GM alt for routine BP
+Migraine,SP05,SP01,false,AK,2026-11-03,Sudden worst-ever headache caught by red-flag rules
+Cervical spondylosis,SP07,SP08,false,AK,2026-11-03,Orthopaedics; Physiotherapy alt
+Paralysis (brain hemorrhage),SP05,SP06,true,AK,2026-11-03,Red flag: emergency desk; Neurosurgery hospital-only
+Jaundice,SP11,SP10,false,AK,2026-11-03,Hepatology hospital-only; Gastro alt at clinics
+Malaria,SP29,SP01,false,AK,2026-11-03,Infectious Diseases; GM alt (common first contact in India)
+Chicken pox,SP29,SP20,false,AK,2026-11-03,Paediatric routing not modelled by diagnosis; see W1 age rule
+Dengue,SP29,SP01,false,AK,2026-11-03,Warning signs (bleeding; severe pain) caught by red-flag rules
+Typhoid,SP29,SP01,false,AK,2026-11-03,Infectious Diseases; GM alt
+hepatitis A,SP11,SP10,false,AK,2026-11-03,Source spelling kept for join; Hepatology hospital-only
+Hepatitis B,SP11,SP10,false,AK,2026-11-03,Hepatology hospital-only; Gastro alt
+Hepatitis C,SP11,SP10,false,AK,2026-11-03,Hepatology hospital-only; Gastro alt
+Hepatitis D,SP11,SP10,false,AK,2026-11-03,Hepatology hospital-only; Gastro alt
+Hepatitis E,SP11,SP10,false,AK,2026-11-03,Hepatology hospital-only; Gastro alt
+Alcoholic hepatitis,SP11,SP10,false,AK,2026-11-03,Hepatology hospital-only; Gastro alt
+Tuberculosis,SP13,SP29,false,AK,2026-11-03,Pulmonology; Infectious Diseases alt
+Common Cold,SP01,SP22,false,AK,2026-11-03,General Medicine; ENT alt
+Pneumonia,SP13,SP01,false,AK,2026-11-03,Breathlessness or chest pain caught by red-flag rules
+Dimorphic hemmorhoids(piles),SP12,SP10,false,AK,2026-11-03,Source spelling kept for join; General Surgery hospital-only
+Heart attack,SP03,SP04,true,AK,2026-11-03,Red flag: emergency desk; never booked
+Varicose veins,SP33,SP12,false,AK,2026-11-03,Both options hospital-only; accepted
+Hypothyroidism,SP16,SP01,false,AK,2026-11-03,Endocrinology; GM alt
+Hyperthyroidism,SP16,SP01,false,AK,2026-11-03,Endocrinology; GM alt
+Hypoglycemia,SP16,SP01,true,AK,2026-11-03,Red flag: emergency desk
+Osteoarthristis,SP07,SP09,false,AK,2026-11-03,Source spelling kept for join; Rheumatology alt
+Arthritis,SP09,SP07,false,AK,2026-11-03,Rheumatology; Orthopaedics alt
+(vertigo) Paroymsal  Positional Vertigo,SP22,SP05,false,AK,2026-11-03,Source spelling kept for join; Neurology alt
+Acne,SP20,,false,AK,2026-11-03,No alternative needed
+Urinary tract infection,SP15,SP01,false,AK,2026-11-03,Accepted Urology; uncomplicated UTI may go to GM alt
+Psoriasis,SP20,SP09,false,AK,2026-11-03,Dermatology; Rheumatology alt for psoriatic arthritis
+Impetigo,SP20,SP18,false,AK,2026-11-03,Dermatology; Paediatrics alt (common in children)

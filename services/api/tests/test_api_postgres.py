@@ -1,6 +1,8 @@
 """HTTP booking regression using the production Postgres dependency factory."""
 import os
 import re
+import hashlib
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,11 +18,12 @@ from services.api.tests.test_api import assert_concurrent_triage
 from services.agent.llm import ScriptedLLM
 from services.agent.tests.test_w1_graph import MATCH_ORTHO, NET_CLEAR
 from services.records.embed import HashEmbedder
+from services.api.ratelimit import RateLimiter
 
 pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
 
 
-def test_postgres_pick_slot_resume_and_replay(monkeypatch):
+def test_postgres_pick_slot_resume_and_replay(monkeypatch, tmp_path):
     schema = "api_test_" + uuid4().hex
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as admin:
         admin.execute(f"CREATE SCHEMA {schema}")
@@ -28,6 +31,7 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
             url = make_conninfo(os.environ["DATABASE_URL"], options=f"-csearch_path={schema},public")
             monkeypatch.setenv("DATABASE_URL", url)
             monkeypatch.setenv("SAHYOG_DEMO_AUTH", "1")
+            monkeypatch.setattr("services.api.main.UPLOAD_ROOT", tmp_path / "uploads")
             # Exercise the actual pool factory, with no dotenv, model, or embedding network access.
             monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: None)
             llm = ScriptedLLM({
@@ -60,9 +64,11 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                 if not seed.execute("SELECT 1 FROM pg_extension WHERE extname='vector'").fetchone():
                     sql = sql.replace("vector(1024)", "real[]")
                 seed.execute(re.sub(r"^\s*(BEGIN|COMMIT);\s*$", "", sql, flags=re.M))
+                seed.execute((Path(__file__).resolve().parents[3] / "infra/db/004_w2_records.sql").read_text())
+                seed.execute((Path(__file__).resolve().parents[3] / "infra/db/005_frontdesk.sql").read_text())
                 seed.execute((Path(__file__).resolve().parents[3] / "infra/db/006_w1_requests.sql").read_text())
                 seed.execute((Path(__file__).resolve().parents[3] / "infra/db/007_tracing.sql").read_text())
-                for migration in ("008_w3_drafts.sql", "009_w3_draft_version_retry.sql", "010_w3_api.sql", "011_deid_timing.sql"):
+                for migration in ("008_w3_drafts.sql", "009_w3_draft_version_retry.sql", "010_w3_api.sql", "011_deid_timing.sql", "012_ingest_jobs.sql", "013_mcp_audit_roles.sql", "014_horizontal_api_state.sql", "015_rate_limit_audit_action.sql", "016_dpdp_erasure.sql"):
                     seed.execute((Path(__file__).resolve().parents[3] / "infra/db" / migration).read_text())
                 seed.execute("""
                     INSERT INTO clinic VALUES ('C1','Test Clinic','Pune','hospital','Pune','08:00','20:00',true,true);
@@ -84,7 +90,55 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                     assert checkpoint_conn.row_factory is dict_row
                 assert pool.max_size == 10
                 assert store_conn.autocommit and store_conn.row_factory is tuple_row
-                thread = assert_concurrent_triage(client, llm, headers)
+                with TestClient(create_app(deps.build_postgres_deps)) as replica_b:
+                    monkeypatch.setenv("RL_READ_PER_MIN", "2")
+                    limiter_a = RateLimiter()
+                    limiter_b = RateLimiter()
+                    assert limiter_a.check(
+                        "PT-RATE-SHARED", "198.51.100.8", "read",
+                        pool=client.app.state.deps.rate_limit_pool,
+                    ) == 0
+                    assert limiter_b.check(
+                        "PT-RATE-SHARED", "198.51.100.8", "read",
+                        pool=replica_b.app.state.deps.rate_limit_pool,
+                    ) == 0
+                    assert limiter_a.check(
+                        "PT-RATE-SHARED", "198.51.100.8", "read",
+                        pool=client.app.state.deps.rate_limit_pool,
+                    ) == 30
+                    monkeypatch.setenv("RL_READ_PER_MIN", "30")
+                    thread = assert_concurrent_triage(
+                        client, llm, headers, resume_client=replica_b,
+                    )
+                    from tools.load_test import _synthetic_pdf
+                    upload_headers = {
+                        "Authorization": headers["Authorization"], "Idempotency-Key": uuid4().hex,
+                    }
+                    upload_data = _synthetic_pdf()
+                    uploaded = client.post(
+                        "/records/upload", headers=upload_headers,
+                        files={"file": ("synthetic.pdf", upload_data, "application/pdf")},
+                    )
+                    assert uploaded.status_code == 202, uploaded.text
+                    upload_replay = replica_b.post(
+                        "/records/upload", headers=upload_headers,
+                        files={"file": ("synthetic.pdf", upload_data, "application/pdf")},
+                    )
+                    assert upload_replay.status_code == 202, upload_replay.text
+                    assert upload_replay.json() == uploaded.json()
+                with psycopg.connect(url, autocommit=True) as verify:
+                    assert verify.execute(
+                        "SELECT count(*) FROM appointment WHERE patient_id='PT1' AND status='booked'"
+                    ).fetchone()[0] == 1
+                    assert verify.execute(
+                        "SELECT count(*) FROM api_replay_request "
+                        "WHERE action='w1_resume' AND status='complete'"
+                    ).fetchone()[0] == 1
+                    assert verify.execute(
+                        "SELECT count(*) FROM api_replay_request "
+                        "WHERE action='upload' AND status='complete'"
+                    ).fetchone()[0] == 1
+                    assert verify.execute("SELECT count(*) FROM ingest_job").fetchone()[0] == 1
                 w2 = client.post("/w2/ask", headers={"Authorization": "Bearer demo-PT1"},
                                  json={"question": "W2_PRIVATE_TEXT_MARKER_671 what medicine should I take?"})
                 assert w2.status_code == 200, w2.text
@@ -107,6 +161,11 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                 with pool.connection() as c:
                     assert c.execute("SELECT count(*) AS n FROM w1_request").fetchone()['n'] == 1
                     assert c.execute("SELECT count(*) AS n FROM w3_request").fetchone()["n"] == 2
+                    requests = c.execute(
+                        "SELECT idempotency_key, status FROM w3_request"
+                    ).fetchall()
+                    assert all(row["status"] == "complete" for row in requests)
+                    assert any(row["idempotency_key"] == signed_key for row in requests)
                     assert c.execute("SELECT initial_soap_json FROM note_draft WHERE draft_id=%s",
                                      (draft_id,)).fetchone()["initial_soap_json"]["P"] == "Continue metformin 500 mg daily."
                     for trace_id, forbidden in (
@@ -134,7 +193,27 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                     assert c.execute("SELECT count(*) AS n FROM trace_span WHERE trace_id='expired'").fetchone()["n"] == 0
             # A fresh dependency factory / process-local cache recovers the same mapping.
             with TestClient(create_app(deps.build_postgres_deps)) as restarted:
-                replay = restarted.post('/w1/triage', headers=headers, json={"text": "same request"})
+                signed_payload = {
+                    "operation": "review", "draft_id": draft_id,
+                    "action": "approve", "edits": [],
+                }
+                signed_fingerprint = hashlib.sha256(json.dumps(
+                    signed_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")).hexdigest()
+                assert signed_headers["Idempotency-Key"] == signed_key
+                stored, claimed = restarted.app.state.deps.w3_requests.claim(
+                    "D1", signed_key, signed_fingerprint, draft_id,
+                )
+                assert not claimed and stored["status"] == "complete"
+                with restarted.app.state.deps.w3_requests.pool.connection() as c:
+                    stored_sign = c.execute(
+                        "SELECT doctor_id, status FROM w3_request WHERE idempotency_key=%s",
+                        (signed_key,),
+                    ).fetchone()
+                    assert stored_sign == {"doctor_id": "D1", "status": "complete"}
+                replay = restarted.post('/w1/triage', headers=headers, json={
+                    "text": "Knee pain climbing stairs for months", "age": 61,
+                })
                 assert replay.status_code == 200, replay.text
                 assert replay.json()['thread_id'] == thread
                 assert replay.json()['booking_id']

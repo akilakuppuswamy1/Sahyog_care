@@ -217,7 +217,10 @@ def _execute(deps_getter: Callable, limiter: RateLimiter, context: Context,
     with getattr(deps, "lock", nullcontext()):
         with span as active_span:
             try:
-                retry = limiter.check(actor.user_id, actor.client_ip, rate_kind)
+                retry = limiter.check(
+                    actor.user_id, actor.client_ip, rate_kind,
+                    pool=getattr(deps, "rate_limit_pool", None),
+                )
                 if retry:
                     status = "rate_limited"
                     raise ToolDenied(f"Rate limit exceeded; retry after {retry} seconds")

@@ -30,6 +30,7 @@ def pgclient(db, monkeypatch, tmp_path):
     root=Path(__file__).resolve().parents[3]
     db.execute(re.sub(r'^\s*(BEGIN|COMMIT);\s*$','',(root/'infra/db/005_frontdesk.sql').read_text(),flags=re.M))
     db.execute(re.sub(r'^\s*(BEGIN|COMMIT);\s*$','',(root/'infra/db/012_ingest_jobs.sql').read_text(),flags=re.M))
+    db.execute(re.sub(r'^\s*(BEGIN|COMMIT);\s*$','',(root/'infra/db/016_dpdp_erasure.sql').read_text(),flags=re.M))
     llm=ScriptedLLM({'w2.answer':{'answer':'Your HbA1c is 8.1% [E1].','citations':['E1'],'insufficient':False}})
     emb=HashEmbedder()
     deps=AppDeps(compile_w1(llm,PostgresStore(db),InMemorySaver()),compile_w2(llm,PostgresRecordsTools(db,PostgresRetriever(db,emb))),lambda p:[],store=PostgresStore(db),embedder=emb)
@@ -155,7 +156,7 @@ def test_three_failures_backoff_and_owner_error(pgclient, db, tmp_path, monkeypa
     job, pid, _ = queued_pdf(c, tmp_path)
     calls = []
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         calls.append(1)
         raise ValueError('parser failed')
 
@@ -227,10 +228,10 @@ def test_ctrl_c_finishes_active_job_then_stops(pgclient, db, tmp_path, monkeypat
     original = worker.run_once
     calls = []
 
-    def active_run(conn, embedder):
+    def active_run(conn, embedder, **kwargs):
         calls.append(1)
         handlers[signal.SIGINT](signal.SIGINT, None)
-        return original(conn, embedder)
+        return original(conn, embedder, **kwargs)
 
     monkeypatch.setattr(signal, 'signal', lambda sig, handler: handlers.update({sig: handler}))
     monkeypatch.setattr('psycopg.connect', lambda *args, **kwargs: conn)

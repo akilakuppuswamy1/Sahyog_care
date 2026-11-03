@@ -21,7 +21,7 @@ services:
       interval: 5s
       retries: 10
   migrate:
-    profiles: ["app"]
+    profiles: ["app", "scale"]
     image: sahyog-api:local
     build:
       context: ..
@@ -31,13 +31,13 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://sahyog:sahyog_local_only@db:5432/sahyog
+      DATABASE_URL: &db "postgresql://sahyog:sahyog_local_only@db:5432/sahyog"
       PYTHON_DOTENV_DISABLED: "1"
     volumes:
       - hfcache:/root/.cache/huggingface
   worker:
     image: sahyog-api:local
-    profiles: ["app"]
+    profiles: ["app", "scale"]
     command: ["python", "-m", "services.records.worker"]
     depends_on:
       migrate:
@@ -72,6 +72,66 @@ services:
       - hfcache:/root/.cache/huggingface
       - ../data/synthetic/out/w3/stock:/app/data/synthetic/out/w3/stock:ro
       - uploads:/app/data/uploads
+  api1:
+    image: sahyog-api:local
+    profiles: ["scale"]
+    build:
+      context: ..
+      dockerfile: infra/api.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *db
+      PYTHON_DOTENV_DISABLED: "1"
+      SAHYOG_DEMO_AUTH: "1"
+      LLM_STUB: "1"
+      LLM_STUB_LATENCY_MS: "${LLM_STUB_LATENCY_MS:-}"
+      SCALE_REPLICA_ID: api1
+      W3_STOCK_DIR: /app/data/synthetic/out/w3/stock
+    volumes:
+      - hfcache:/root/.cache/huggingface
+      - ../data/synthetic/out/w3/stock:/app/data/synthetic/out/w3/stock:ro
+      - uploads:/app/data/uploads
+    ports:
+      - "${API1_PORT:-8001}:8000"
+  api2:
+    image: sahyog-api:local
+    profiles: ["scale"]
+    build:
+      context: ..
+      dockerfile: infra/api.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *db
+      PYTHON_DOTENV_DISABLED: "1"
+      SAHYOG_DEMO_AUTH: "1"
+      LLM_STUB: "1"
+      LLM_STUB_LATENCY_MS: "${LLM_STUB_LATENCY_MS:-}"
+      SCALE_REPLICA_ID: api2
+      W3_STOCK_DIR: /app/data/synthetic/out/w3/stock
+    volumes:
+      - hfcache:/root/.cache/huggingface
+      - ../data/synthetic/out/w3/stock:/app/data/synthetic/out/w3/stock:ro
+      - uploads:/app/data/uploads
+    ports:
+      - "${API2_PORT:-8002}:8000"
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["scale"]
+    depends_on:
+      - api1
+      - api2
+    ports:
+      - "${SCALE_PORT:-8080}:8080"
+    volumes:
+      - ./nginx-scale.conf:/etc/nginx/conf.d/default.conf:ro
 volumes:
   pgdata:
   hfcache:

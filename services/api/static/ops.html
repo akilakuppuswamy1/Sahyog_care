@@ -70,6 +70,33 @@
         formatted.text = open === 0 && halfOpen === 0
           ? "All closed" : `${open} open · ${halfOpen} half-open`;
         formatted.status = open > 0 ? "bad" : "good";
+      } else if (tile.id === "model-mode") {
+        formatted.text = String(value);
+      } else if (tile.id === "latest-load-test") {
+        formatted.text = `${value.status} · ${value.requests} requests · `
+          + `${numberText(value.requests_per_second, 4)} RPS`;
+        formatted.detail = `Run ${value.run_id} · errors ${percentText(value.error_rate)} · `
+          + `429 ${percentText(value.rate_429)} · `
+          + `${value.replicas.observed}/${value.replicas.configured} replicas `
+          + `(${(value.replicas.ids || []).join(", ")})`;
+        formatted.status = value.status === "PASS" ? "good" : "bad";
+      } else if (tile.id.startsWith("load-endpoint-")) {
+        formatted.text = `p95 ${numberText(value.p95_ms)} ms · target < `
+          + `${numberText(value.target_ms)} ms · ${value.pass ? "PASS" : "FAIL"}`;
+        formatted.detail = `Run ${value.run_id} · n = ${value.count} · `
+          + `${numberText(value.rps, 4)} RPS`;
+        formatted.status = value.pass ? "good" : "bad";
+      } else if (tile.id.startsWith("load-") && tile.id.endsWith("-p95")) {
+        formatted.text = `p95 ${numberText(value.p95_s, 3)} s · target < ${numberText(value.target_s, 0)} s`;
+        formatted.detail = `${value.count} workflow runs`;
+        formatted.status = value.pass ? "good" : "bad";
+      } else if (tile.id === "load-errors") {
+        formatted.text = `errors ${percentText(value.error_rate)} · 429 ${percentText(value.rate_429)}`;
+        formatted.detail = `degraded ${percentText(value.degraded_rate)}`;
+        formatted.status = Number(value.error_rate) === 0 ? "good" : "bad";
+      } else if (tile.id === "load-replicas") {
+        formatted.text = `${value.observed}/${value.configured} replicas observed`;
+        formatted.detail = (value.ids || []).join(", ");
       } else if (tile.id === "red-flag-recall") {
         formatted.text = percentText(value);
         formatted.status = Number(value) === 1 ? "good" : "bad";

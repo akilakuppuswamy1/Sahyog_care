@@ -35,6 +35,8 @@ class AppDeps:
     embedder: Any = None
     upload_ingest: Any = None  # Explicit in-process callback for injected test deps only.
     w1_requests: Any = field(default_factory=lambda: W1Requests())
+    replay_requests: Any = field(default_factory=lambda: ReplayRequests())
+    rate_limit_pool: Any = None
     tracer: Tracer | None = None
     w3: Any = None
     w3_store: Any = None
@@ -47,16 +49,45 @@ class W1Requests:
     def __init__(self, pool=None):
         self.pool, self.rows, self.lock = pool, {}, RLock()
 
-    def claim(self, user, key, thread):
+    def claim(self, user, key, thread, fingerprint):
         if self.pool:
             with self.pool.connection() as c:
-                row = c.execute("INSERT INTO w1_request (user_id,idempotency_key,thread_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING RETURNING thread_id", (user,key,thread)).fetchone()
-                if row: return thread, True
-                return c.execute("SELECT thread_id FROM w1_request WHERE user_id=%s AND idempotency_key=%s", (user,key)).fetchone()['thread_id'], False
+                row = c.execute(
+                    """INSERT INTO w1_request (user_id, idempotency_key, thread_id, fingerprint)
+                       VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING
+                       RETURNING thread_id""",
+                    (user, key, thread, fingerprint),
+                ).fetchone()
+                if row:
+                    return thread, True, True
+                existing = c.execute(
+                    """SELECT thread_id, fingerprint FROM w1_request
+                        WHERE user_id = %s AND idempotency_key = %s""",
+                    (user, key),
+                ).fetchone()
+                if existing["fingerprint"] is None:
+                    updated = c.execute(
+                        """UPDATE w1_request SET fingerprint = %s
+                            WHERE user_id = %s AND idempotency_key = %s AND fingerprint IS NULL
+                            RETURNING fingerprint""",
+                        (fingerprint, user, key),
+                    ).fetchone()
+                    if updated:
+                        return existing["thread_id"], False, True
+                    existing = c.execute(
+                        """SELECT thread_id, fingerprint FROM w1_request
+                            WHERE user_id = %s AND idempotency_key = %s""",
+                        (user, key),
+                    ).fetchone()
+                return existing["thread_id"], False, existing["fingerprint"] == fingerprint
         with self.lock:
-            if (user,key) in self.rows: return self.rows[user,key]['thread_id'], False
-            self.rows[user,key] = dict(thread_id=thread, user_id=user, running=True)
-            return thread, True
+            existing = self.rows.get((user, key))
+            if existing is not None:
+                return (existing["thread_id"], False,
+                        existing["fingerprint"] == fingerprint)
+            self.rows[user, key] = dict(thread_id=thread, user_id=user,
+                                        fingerprint=fingerprint, running=True)
+            return thread, True, True
 
     def get(self, user, thread):
         if self.pool:
@@ -121,9 +152,99 @@ class W3Requests:
             row.update(status="complete", response=response)
 
 
+class ReplayRequests:
+    """Share W1-resume and upload replay claims across API processes."""
+    def __init__(self, pool=None):
+        self.pool, self.rows, self.lock = pool, {}, RLock()
+
+    def get(self, action, owner, key):
+        if self.pool:
+            with self.pool.connection() as conn:
+                row = conn.execute(
+                    """SELECT identity, fingerprint, status, response
+                         FROM api_replay_request
+                        WHERE action = %s AND owner_id = %s AND idempotency_key = %s""",
+                    (action, owner, key),
+                ).fetchone()
+                return dict(row) if row else None
+        with self.lock:
+            row = self.rows.get((action, owner, key))
+            return dict(row) if row else None
+
+    def claim(self, action, owner, key, identity, fingerprint):
+        if self.pool:
+            with self.pool.connection() as conn:
+                row = conn.execute(
+                    """INSERT INTO api_replay_request
+                         (action, owner_id, idempotency_key, identity, fingerprint, status, lease_until)
+                       VALUES (%s, %s, %s, %s, %s, 'running', now() + interval '15 minutes')
+                       ON CONFLICT (action, owner_id, idempotency_key) DO UPDATE
+                         SET identity = EXCLUDED.identity, fingerprint = EXCLUDED.fingerprint,
+                             status = 'running', response = NULL,
+                             lease_until = now() + interval '15 minutes', updated_at = now()
+                       WHERE api_replay_request.status = 'running'
+                         AND api_replay_request.lease_until < now()
+                         AND api_replay_request.identity = EXCLUDED.identity
+                         AND api_replay_request.fingerprint = EXCLUDED.fingerprint
+                       RETURNING identity, fingerprint, status, response""",
+                    (action, owner, key, identity, fingerprint),
+                ).fetchone()
+                if row:
+                    return dict(row), True
+                existing = conn.execute(
+                    """SELECT identity, fingerprint, status, response
+                         FROM api_replay_request
+                        WHERE action = %s AND owner_id = %s AND idempotency_key = %s""",
+                    (action, owner, key),
+                ).fetchone()
+                return dict(existing), False
+        with self.lock:
+            identity_key = (action, owner, key)
+            existing = self.rows.get(identity_key)
+            if existing is not None:
+                return dict(existing), False
+            row = {"identity": identity, "fingerprint": fingerprint,
+                   "status": "running", "response": None}
+            self.rows[identity_key] = row
+            return dict(row), True
+
+    def complete(self, action, owner, key, response):
+        if self.pool:
+            with self.pool.connection() as conn:
+                updated = conn.execute(
+                    """UPDATE api_replay_request
+                          SET status = 'complete', response = %s::jsonb,
+                              lease_until = NULL, updated_at = now()
+                        WHERE action = %s AND owner_id = %s AND idempotency_key = %s
+                          AND status = 'running'
+                     RETURNING idempotency_key""",
+                    (json.dumps(response, ensure_ascii=False), action, owner, key),
+                ).fetchone()
+                if updated is None:
+                    raise RuntimeError("Replay request claim was lost before completion")
+            return
+        with self.lock:
+            row = self.rows[(action, owner, key)]
+            row.update(status="complete", response=response)
+
+    def release(self, action, owner, key):
+        if self.pool:
+            with self.pool.connection() as conn:
+                conn.execute(
+                    """DELETE FROM api_replay_request
+                        WHERE action = %s AND owner_id = %s AND idempotency_key = %s
+                          AND status = 'running'""",
+                    (action, owner, key),
+                )
+            return
+        with self.lock:
+            self.rows.pop((action, owner, key), None)
+
+
 def build_postgres_deps() -> AppDeps:
     from dotenv import load_dotenv
-    load_dotenv(ROOT / ".env")
+    if os.environ.get("PYTHON_DOTENV_DISABLED") != "1":
+        load_dotenv(ROOT / ".env")
     from psycopg_pool import ConnectionPool
     from psycopg.rows import dict_row
     from langgraph.checkpoint.postgres import PostgresSaver
@@ -163,7 +284,8 @@ def build_postgres_deps() -> AppDeps:
                                    (patient_id,)).fetchall()
 
         return AppDeps(w1, w2, audit, close=stack.close, store=store, embedder=embedder,
-                       w1_requests=W1Requests(pool), tracer=tracer,
+                       w1_requests=W1Requests(pool), replay_requests=ReplayRequests(pool),
+                       rate_limit_pool=pool, tracer=tracer,
                        w3=w3, w3_store=w3_store, w3_requests=W3Requests(pool), stock=w3_stock)
     except BaseException:
         stack.close()

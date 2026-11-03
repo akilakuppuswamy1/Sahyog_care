@@ -72,9 +72,11 @@ sequenceDiagram
     end
 ```
 
-Migration 006 reserves a durable `(user_id,idempotency_key)` mapping, with unique `thread_id` and
-`running` state. A same-key triage body is not fingerprinted: it returns the original thread even
-if text changes. Failure before `finish()` can strand `running=true`; automated recovery is not built.
-Resume replay cache is process-local; completed booking state and SQL booking idempotency add protection.
+Migration 006 reserves a durable `(user_id,idempotency_key)` mapping, with unique `thread_id`,
+`running` state and the request fingerprint added by migration 014. Reusing the key for a
+different triage body returns 409. W1 checkpoint and resume replay state are shared through
+Postgres; a 15-minute lease permits retry after a stale in-progress resume. Failure before
+`finish()` can still strand the initial triage reservation; automated recovery is not built.
+SQL booking idempotency prevents duplicate appointments across replicas.
 Slot-full retries shortlist, then front desk after two booking failures. The SMS participant is an
 audit resource name, not a SQL outbox table or a delivery worker; notification delivery is planned Pro.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from uuid import uuid4
 
 import httpx2
@@ -90,14 +91,22 @@ async def run_demo(base_url: str, agent_id: str) -> dict:
     }
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--agent-id", required=True)
     args = parser.parse_args()
-    result = asyncio.run(run_demo(args.base_url, args.agent_id))
+    try:
+        result = asyncio.run(run_demo(args.base_url, args.agent_id))
+    except httpx2.HTTPStatusError as exc:
+        if exc.response.status_code != 403:
+            raise
+        agent_id = args.agent_id.replace("\r", " ").replace("\n", " ")
+        print(f"Agent '{agent_id}' rejected by the server (403: agent not approved)", file=sys.stderr)
+        return 1
     print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

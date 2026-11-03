@@ -43,3 +43,51 @@ def test_report_includes_w3_metrics_and_review_time_source(tmp_path):
     assert "W3 SOAP field F1 >= 0.9 (O) | 0.8" in report
     assert "W3 invented molecules = 0 | 0" in report
     assert "W3 doctor review time p95 < 90 s | not measured" in report
+
+
+def test_report_shows_latest_ingest_benchmark(tmp_path):
+    for stamp, rate in (("20260101-100000", 2.5), ("20260102-100000", 4.25)):
+        (tmp_path / f"ingest-bench-{stamp}.json").write_text(json.dumps({
+            "meta": {"run_id": stamp, "documents": 3},
+            "sequential": {"docs_per_second": 1.0, "p95_per_document_seconds": 1.5,
+                           "peak_concurrency": 1, "failed_documents": 0},
+            "parallel": {"docs_per_second": rate, "p95_per_document_seconds": 0.75,
+                         "peak_concurrency": 3, "failed_documents": 0},
+        }), encoding="utf-8")
+
+    report = build_report(tmp_path)
+
+    assert "ingest-bench-20260102-100000.json" in report
+    assert "| Parallel | 4.25 | 0.75 | 3 | 0 |" in report
+
+
+def test_report_shows_latest_load_result_and_stub_provenance(tmp_path):
+    for stamp, latency in (("20260101-100000", 3900), ("20260102-100000", 3500)):
+        (tmp_path / f"load-{stamp}.json").write_text(json.dumps({
+            "meta": {
+                "run_id": stamp, "configured_replicas": 2,
+                "observed_replicas": ["api1", "api2"],
+                "model_latency": {"mode": "sampled_p50_p95", "source": "saved evals"},
+            },
+            "summary": {"requests": 100, "requests_per_second": 1.25,
+                        "error_rate": 0.01, "rate_429": 0.002},
+            "workflows": {
+                "w1": {"p95_ms": latency, "target_ms": 4000, "pass": latency < 4000},
+            },
+            "routes": {
+                "POST /w1/triage": {
+                    "p95_ms": latency - 100, "target_ms": 4000,
+                    "rps": 0.5, "pass": latency - 100 < 4000,
+                },
+            },
+        }), encoding="utf-8")
+
+    report = build_report(tmp_path)
+
+    assert "load-20260102-100000.json" in report
+    assert "run id `20260102-100000`" in report
+    assert "1.25 RPS" in report
+    assert "Model latency is stubbed for this run." in report
+    assert "| W1 | 3500 | 4000 | PASS |" in report
+    assert "### Per-endpoint p95" in report
+    assert "| POST /w1/triage | 0.5 | 3400 | 4000 | PASS |" in report

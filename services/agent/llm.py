@@ -8,6 +8,7 @@ token usage recorded for the cost meter, and a trace id.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -28,6 +29,11 @@ from services.common.tracing import Tracer
 from services.common.deid import analyzer, prepare_egress, reidentify
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+STUB_LATENCY_SOURCES = {
+    "w1": {"run": "w1-20261103-071432-graph.json", "p50_ms": 60, "p95_ms": 2870},
+    "w2": {"run": "w2-20261103-104837.json", "p50_ms": 1000, "p95_ms": 3560},
+    "w3": {"run": "w3-20261103-114035.json", "p50_ms": 2413, "p95_ms": 6583},
+}
 
 
 class ModelError(RuntimeError):
@@ -205,6 +211,64 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
+def _stub_latency_ms(workflow: str, seed: str) -> int:
+    override = os.environ.get("LLM_STUB_LATENCY_MS")
+    if override is not None and override.strip():
+        try:
+            latency = int(override)
+        except ValueError as exc:
+            raise ModelError("LLM_STUB_LATENCY_MS must be a non-negative integer") from exc
+        if latency < 0:
+            raise ModelError("LLM_STUB_LATENCY_MS must be a non-negative integer")
+        return latency
+    source = STUB_LATENCY_SOURCES.get(workflow.lower())
+    if source is None:
+        raise ModelError(f"No saved latency provenance for workflow {workflow}")
+    sample = int.from_bytes(hashlib.sha256(seed.encode("utf-8")).digest()[:4], "big") % 20
+    return source["p95_ms"] if sample == 0 else source["p50_ms"]
+
+
+def load_test_stub_provenance() -> dict:
+    override = os.environ.get("LLM_STUB_LATENCY_MS")
+    if override is not None and override.strip():
+        return {"mode": "fixed", "latency_ms": _stub_latency_ms("w1", "provenance"),
+                "source": "LLM_STUB_LATENCY_MS"}
+    return {
+        "mode": "sampled_p50_p95",
+        "tail_probability": 0.05,
+        "workflows": {
+            workflow: {
+                "run": source["run"],
+                "p50_ms": source["p50_ms"],
+                "p95_ms": source["p95_ms"],
+            }
+            for workflow, source in STUB_LATENCY_SOURCES.items()
+        },
+    }
+
+
+def _stub_response(purpose: str) -> dict:
+    responses = {
+        "w1.red_flag_net": {"red_flag": False, "flag": ""},
+        "w1.match": {
+            "specialty": "SP07", "alternative": "SP08", "confidence": 0.82,
+            "clarifying_question": None,
+        },
+        "w2.answer": {
+            "answer": "The cited report excerpt contains the requested information. "
+                      "Please ask your doctor what it means for you.",
+            "citations": ["E1"], "insufficient": False,
+        },
+        "w3.draft_soap": {
+            "S": "", "O": "", "A": "", "P": "", "medicines": [],
+        },
+    }
+    try:
+        return dict(responses[purpose])
+    except KeyError as exc:
+        raise ModelError(f"No schema-valid load-test stub response for {purpose}") from exc
+
+
 @dataclass
 class OpenRouterLLM:
     """OpenRouter's OpenAI-compatible chat API. Reads OPENROUTER_API_KEY and OPENROUTER_MODEL."""
@@ -220,6 +284,15 @@ class OpenRouterLLM:
     _usage_record_ids: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        stub_mode = os.environ.get("LLM_STUB", "0")
+        if stub_mode not in {"0", "1"}:
+            raise ModelError("LLM_STUB must be 0 or 1")
+        if os.environ.get("LLM_STUB") == "1":
+            if os.environ.get("SAHYOG_DEMO_AUTH") != "1":
+                raise ModelError("LLM_STUB=1 requires SAHYOG_DEMO_AUTH=1")
+            _stub_latency_ms(self.workflow or "w1", "initialization")
+            analyzer()
+            return
         analyzer()  # Load the local model before request deadlines.
         if self.workflow:
             self.model = os.environ.get(f"OPENROUTER_MODEL_{self.workflow.upper()}") or self.model
@@ -231,6 +304,10 @@ class OpenRouterLLM:
             raise ModelError("OPENROUTER_MODEL is not set, e.g. a small fast model id from openrouter.ai/models")
 
     def complete_json(self, system: str, user: str, *, purpose: str, trace_id: str) -> dict:
+        if os.environ.get("LLM_STUB") == "1":
+            if os.environ.get("SAHYOG_DEMO_AUTH") != "1":
+                raise ModelError("LLM_STUB=1 requires SAHYOG_DEMO_AUTH=1")
+            return self._complete_stub(system, user, purpose, trace_id)
         user_out = user
         workflow = (self.workflow or "w1").lower()
         deadline_s = _workflow_seconds(
@@ -260,6 +337,37 @@ class OpenRouterLLM:
             return result
         finally:
             _release_request_slots(slots)
+
+    def _complete_stub(self, system: str, user: str, purpose: str, trace_id: str) -> dict:
+        workflow = purpose.split(".", 1)[0].lower()
+        system, user, token_map, deid_ms = prepare_egress(system, user)
+        latency_ms = _stub_latency_ms(workflow, trace_id + ":" + purpose)
+        started = time.monotonic()
+        span_context = (
+            self.tracer.span("model", purpose, workflow=workflow, trace_id=trace_id,
+                             model="load-test-stub", provider="local", served_by="load-test stub")
+            if self.tracer else None
+        )
+        if span_context:
+            with span_context as span:
+                span.span.deid_ms = round(deid_ms, 3)
+                time.sleep(latency_ms / 1000)
+                result = _stub_response(purpose)
+                result = reidentify(result, token_map)
+        else:
+            time.sleep(latency_ms / 1000)
+            result = reidentify(_stub_response(purpose), token_map)
+        elapsed = time.monotonic() - started
+        with self.usage._lock:
+            self._usage_record_ids += 1
+            self.usage.calls += 1
+            self.usage.call_records.append({
+                "id": self._usage_record_ids, "workflow": workflow, "model": "load-test-stub",
+                "provider": "local", "served_by": "load-test stub", "purpose": purpose,
+                "trace_id": trace_id, "success": True, "selected": True,
+                "latency_s": elapsed, "tokens_in": 0, "tokens_out": 0,
+            })
+        return result
 
     def _complete_with_hedge(self, system: str, user: str, purpose: str, trace_id: str, deadline_s: float,
                              deadline: float, hedge_after_s: float, fallback_model: str,

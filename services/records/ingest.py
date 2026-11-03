@@ -6,7 +6,7 @@ Every write is an audit event.
 
 Core tier runs ingest synchronously from the CLI. Pro moves the same function onto a queue worker (p.36).
 
-Usage (repo root, DB up, migration 004 applied):
+Usage (repo root, DB up, migrations 004 and 012 applied):
     python -m services.records.ingest --load-patients          # patients + consents from the generator
     python -m services.records.ingest                          # ingest every PDF in the manifest
     python -m services.records.ingest --doc DOC-W2-0001-CBC    # one document
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import time
@@ -28,34 +29,66 @@ REPORTS = ROOT / "data" / "synthetic" / "out" / "reports"
 ACTOR = "worker:ingest"
 
 
-def audit(conn, action, resource_type, resource_id, patient_id, purpose, detail=None):
+def audit(conn, action, resource_type, resource_id, patient_id, purpose, detail=None, trace_id=None):
     conn.execute("""INSERT INTO audit_event (actor_id, actor_role, action, resource_type, resource_id, patient_id,
-                                             purpose, detail) VALUES (%s,'system',%s,%s,%s,%s,%s,%s)""",
-                 (ACTOR, action, resource_type, resource_id, patient_id, purpose, json.dumps(detail or {})))
+                                             purpose, detail, trace_id) VALUES (%s,'system',%s,%s,%s,%s,%s,%s,%s)""",
+                 (ACTOR, action, resource_type, resource_id, patient_id, purpose, json.dumps(detail or {}), trace_id))
 
 
 def set_status(conn, doc_id: str, status: str, error: str | None = None) -> None:
     conn.execute("UPDATE document SET ingest_status = %s, error = %s WHERE doc_id = %s", (status, error, doc_id))
 
 
-def register(conn, m: dict) -> None:
-    conn.execute("""INSERT INTO document (doc_id, patient_id, type, uri, title, report_date, ingest_status, synthetic)
-                    VALUES (%s,%s,%s,%s,%s,%s,'queued',true)
-                    ON CONFLICT (doc_id) DO UPDATE SET ingest_status = 'queued', error = NULL""",
-                 (m["doc_id"], m["patient_id"], m["type"], m.get("uri", f"file://reports/{m['file']}"), m["title"], m["date"]))
-    audit(conn, "write", "document", m["doc_id"], m["patient_id"], "upload", {"status": "queued"})
+def _source_path(m: dict) -> Path:
+    return Path(m["path"]) if "path" in m else REPORTS / m["file"]
 
 
-def ingest_one(conn, m: dict, embedder: Embedder) -> dict:
+def _file_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def register(conn, m: dict, fingerprint: str | None = None) -> None:
+    fingerprint = fingerprint or _file_hash(_source_path(m))
+    status = conn.execute("""INSERT INTO document (doc_id, patient_id, type, uri, title, report_date, ingest_status,
+                                                       content_hash, synthetic)
+                    VALUES (%s,%s,%s,%s,%s,%s,'queued',%s,true)
+                    ON CONFLICT (doc_id) DO UPDATE SET
+                        content_hash = EXCLUDED.content_hash,
+                        ingest_status = CASE
+                            WHEN document.ingest_status = 'indexed'
+                             AND document.content_hash = EXCLUDED.content_hash THEN 'indexed'
+                            ELSE 'queued' END,
+                        error = NULL
+                    RETURNING ingest_status""",
+                          (m["doc_id"], m["patient_id"], m["type"], m.get("uri", f"file://reports/{m['file']}"),
+                           m["title"], m["date"], fingerprint)).fetchone()[0]
+    audit(conn, "write", "document", m["doc_id"], m["patient_id"], "upload", {"status": status})
+
+
+def ingest_one(conn, m: dict, embedder: Embedder, *, register_document: bool = True,
+               trace_id: str | None = None) -> dict:
     doc_id, pid = m["doc_id"], m["patient_id"]
-    register(conn, m)
-    set_status(conn, doc_id, "parsing")
+    path = _source_path(m)
     try:
-        pages = read_pdf_pages(Path(m["path"]) if "path" in m else REPORTS / m["file"])
+        fingerprint = _file_hash(path)
+        existing = conn.execute(
+            "SELECT ingest_status,content_hash FROM document WHERE doc_id=%s", (doc_id,)
+        ).fetchone()
+        if existing and existing[0] == "indexed" and existing[1] == fingerprint:
+            return {"doc_id": doc_id, "status": "indexed", "chunks": 0, "idempotent": True}
+        if not register_document and existing and existing[1] and existing[1] != fingerprint:
+            raise ValueError("PDF content hash does not match the registered document")
+        if register_document:
+            register(conn, m, fingerprint)
+        set_status(conn, doc_id, "parsing")
+        pages = read_pdf_pages(path)
         chunks, needs_ocr = chunk_document(doc_id, pages)
         if needs_ocr and not chunks:
-            set_status(conn, doc_id, "failed", f"scanned pages {needs_ocr} need OCR (not available at Core tier)")
-            return {"doc_id": doc_id, "status": "failed", "chunks": 0}
+            error = f"scanned pages {needs_ocr} need OCR (not available at Core tier)"
+            set_status(conn, doc_id, "failed", error)
+            audit(conn, "write", "document", doc_id, pid, "index",
+                  {"status": "failed", "error_type": "OCRRequired"}, trace_id)
+            return {"doc_id": doc_id, "status": "failed", "chunks": 0, "error_type": "OCRRequired"}
         cached = dict(conn.execute("SELECT content_hash, embedding::text FROM doc_chunk WHERE content_hash = ANY(%s) "
                                    "AND embedding IS NOT NULL", ([c.content_hash for c in chunks],)).fetchall())
         todo = [c for c in chunks if c.content_hash not in cached and "injection" not in c.flags]
@@ -72,11 +105,14 @@ def ingest_one(conn, m: dict, embedder: Embedder) -> dict:
         set_status(conn, doc_id, "indexed")
         flagged = [c.chunk_id for c in chunks if c.flags]
         audit(conn, "write", "doc_chunk", doc_id, pid, "index",
-              {"chunks": len(chunks), "embedded": len(vecs), "cached": len(chunks) - len(todo), "flagged": flagged})
+              {"chunks": len(chunks), "embedded": len(vecs), "cached": len(chunks) - len(todo),
+               "flagged": flagged, "content_hash": fingerprint}, trace_id)
         return {"doc_id": doc_id, "status": "indexed", "chunks": len(chunks), "flagged": flagged}
     except Exception as e:  # the patient sees "failed" with a reason; the run never dies silently
         set_status(conn, doc_id, "failed", str(e)[:300])
-        return {"doc_id": doc_id, "status": "failed", "error": str(e)[:300]}
+        audit(conn, "write", "document", doc_id, pid, "index",
+              {"status": "failed", "error_type": type(e).__name__}, trace_id)
+        return {"doc_id": doc_id, "status": "failed", "error": str(e)[:300], "error_type": type(e).__name__}
 
 
 def load_patients(conn) -> None:

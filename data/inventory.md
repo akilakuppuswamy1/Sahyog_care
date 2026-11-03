@@ -1,19 +1,19 @@
 # Data inventory
 
-**Status:** skeleton · 2026-11-02 · owner: data lead
+**Status:** filed · 2026-11-03 · owner: data lead
 **Rule (deck p.17):** sizes marked "about" are the pack's estimates. Exact row counts and licences are recorded here **before any row is used**. Fill the "Exact rows" column by running `python data/inventory.py` after the downloads.
 
 ## Public sources
 
-| Source | Kaggle / OpenML id | Pack estimate | Exact rows | Licence | Downloaded on | Used for |
-|---|---|---|---|---|---|---|
-| Medical Appointment No Shows | `joniarroba/noshowappointments` · OpenML 43439 | 110,527 | **110,527** (KaggleV2-May-2016.csv) | CC BY-NC-SA 4.0 per pack; _confirm from the download log_ | 2026-11-02 | Slot logic, no-show signal |
-| Medical Transcriptions | `tboyle10/medicaltranscriptions` | ~5,000 | **4,999** (mtsamples.csv) | _confirm from the download log_ | 2026-11-02 | Dictation seed, synthetic PDFs |
-| Disease Symptom Prediction | `itachi9604/disease-symptom-description-dataset` | ~4,900 | **4,920** (dataset.csv); plus Symptom-severity 133, symptom_Description 41, symptom_precaution 41 | CC BY-SA 4.0 | 2026-11-02 | Symptom → specialty crosswalk |
-| A-Z Medicine Dataset of India | `shudhanshusingh/az-medicine-dataset-of-india` | 250,000+ | **253,973** (A_Z_medicines_dataset_of_India.csv) | CC BY-SA 4.0 | 2026-11-02 | Formulary, stock checks |
-| Healthcare Dataset (synthetic) | `prasad22/healthcare-dataset` | ~55,000 | **55,500** (healthcare_dataset.csv) | CC0 1.0 | 2026-11-02 | Patient master, encounters |
+| Source | Kaggle slug | Pack estimate | Exact rows | Licence | Licence check | Downloaded on | Used for |
+|---|---|---|---|---|---|---|---|
+| Medical Appointment No Shows | `joniarroba/noshowappointments` (also OpenML 43439) | 110,527 | **110,527** (KaggleV2-May-2016.csv) | CC BY-NC-SA 4.0 | stated in pack p.17 | 2026-11-02 | Slot logic, no-show signal |
+| Medical Transcriptions | `tboyle10/medicaltranscriptions` | ~5,000 | **4,999** (mtsamples.csv) | CC0 1.0 (public domain) | verified on Kaggle 3 Nov 2026 | 2026-11-02 | Dictation seed, synthetic PDFs |
+| Disease Symptom Prediction | `itachi9604/disease-symptom-description-dataset` | ~4,900 | **4,920** (dataset.csv); plus Symptom-severity 133, symptom_Description 41, symptom_precaution 41 | CC BY-SA 4.0 | verified on Kaggle 3 Nov 2026 | 2026-11-02 | Symptom → specialty crosswalk |
+| A-Z Medicine Dataset of India | `shudhanshusingh/az-medicine-dataset-of-india` | 250,000+ | **253,973** (A_Z_medicines_dataset_of_India.csv) | CC BY-SA 4.0 | verified on Kaggle 3 Nov 2026 | 2026-11-02 | Formulary, stock checks |
+| Healthcare Dataset (synthetic) | `prasad22/healthcare-dataset` | ~55,000 | **55,500** (healthcare_dataset.csv) | CC0 1.0 | verified on Kaggle 3 Nov 2026 | 2026-11-02 | Patient master, encounters |
 
-The No Shows slug `joniarroba/noshowappointments` is confirmed: it downloaded and matches the pack's 110,527 rows exactly.
+No-Shows is licensed non-commercial (NC). That is acceptable for this training engagement, and it would be flagged to procurement at a real client. Licences were checked against each Kaggle page by the pod on: 3 Nov 2026
 
 ## Generated layer (team's own, `synthetic = true`)
 
@@ -38,13 +38,20 @@ The No Shows slug `joniarroba/noshowappointments` is confirmed: it downloaded an
 | Source | Rows in | Rows out | Dropped, by reason | Notes |
 |---|---|---|---|---|
 | No Shows | 110,527 | 110,521 | negative/implausible age 1; scheduled after visit 5 | Measured no-show rate **20.2%** |
-| Disease Symptom | 4,920 | 4,920 | none | 41 diseases, 131 symptoms, 321 disease–symptom pairs; 41 crosswalk rows unreviewed |
+| Disease Symptom | 4,920 | 321 | none (aggregated to unique disease–symptom pairs) | 41 diseases, 131 symptoms; 41 crosswalk rows reviewed by the pod on 3 Nov 2026 |
 | Transcriptions | 4,999 | 2,357 | empty 33; duplicate text 2,609 | After the label fix: 54 with no specialty, 264 under a generic label, 38 labels |
 | Medicines | 253,973 | 246,068 | discontinued 7,905 | 11,021 compositions; 0 unparseable prices; pack-size regex missed 62 (0.03%) |
 | Healthcare | 55,500 | 54,966 | exact duplicate 534 | 0 date-order violations, before or after |
+
+Rows out is the exact record count in each `data/clean` output; Disease Symptom has 321 aggregated pairs (its transform tally retains source-row grain). All five transformed sources have exact rows-in/rows-out and drop-reasons tallies above. The three auxiliary Disease Symptom CSVs are counted in the source table but are not separately transformed, so no rows-out or drop tally applies to them.
+
+## Identifier check
+
+Identifier check: 50 scrubbed notes (seed 42) read by eye by the pod on 3 Nov 2026; leftover identifiers found: 9 notes. No names (the source already uses placeholders such as "Dr. X"/"Ms. ABC"), but exact dates (7 notes) and city names (2 notes: Tyler, Texas; Seattle) survived the scrub. Action: add date and location redaction to the transcription transform (pending, see AI log).
 
 ## Findings from the real data
 1. **No-show rate is 20.2%, not the client's 18%.** This dataset is Brazilian 2016 data, not Sahyog's own, so this is a calibration note, not a contradiction. Put it to the client in discovery.
 2. **The "discharge before admission" mess (deck p.19) is not in the current Healthcare Dataset.** The check still runs, and the proof ("violations fall to zero") holds trivially.
 3. **Transcriptions are 53% duplicates.** The same note is filed under several labels. The first transform kept file order; it now keeps the most specific label and records all of them.
 4. **Licence obligations.** CC BY-SA (Disease Symptom, A-Z Medicine) means derived data shared outside the pod must carry the same licence. CC BY-NC-SA (No Shows, per pack) forbids commercial use, which is fine for the academy but must be swapped out before a real client deployment.
+5. **The scrub misses dates and places.** A by-eye check of 50 scrubbed notes found no names, but exact dates in 7 notes and city names in 2. Names in the source were already placeholders, so the scrubber was never really tested on them. Fix pending: date and location redaction in the transcription transform, with a test.

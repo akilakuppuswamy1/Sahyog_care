@@ -18,9 +18,10 @@ class Embedder(Protocol):
 
 
 class BgeM3Embedder:
-    def __init__(self, model_name: str = "BAAI/bge-m3", batch_size: int = 64):
+    def __init__(self, model_name: str = "BAAI/bge-m3", batch_size: int = 64,
+                 local_files_only: bool = False):
         from sentence_transformers import SentenceTransformer   # imported lazily: heavy
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformer(model_name, local_files_only=local_files_only)
         self.batch_size = batch_size                             # deck p.26: batch of 64
 
     def embed(self, texts: list[str]) -> list[list[float]]:

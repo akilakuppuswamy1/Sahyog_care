@@ -10,6 +10,17 @@ def current_user(request: Request, authorization: str | None = Header(default=No
         match = re.fullmatch(r"Bearer demo-([A-Za-z0-9][A-Za-z0-9_-]{0,127})", authorization)
         if match:
             identity = match[1]
+            if identity.startswith("caregiver-"):
+                caregiver, separator, patient = identity[len("caregiver-"):].rpartition("-for-")
+                valid_id = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
+                if not separator or not re.fullmatch(valid_id, caregiver) or not re.fullmatch(valid_id, patient):
+                    raise HTTPException(401, "Authentication required")
+                if request.url.path != "/w2/ask":
+                    raise HTTPException(403, "Caregiver tokens are limited to W2 record access")
+                request.state.user = caregiver
+                request.state.patient_id = patient
+                request.state.role = "caregiver"
+                return caregiver
             staff = identity.startswith("staff-")
             ops = identity.startswith("ops-")
             doctor = identity.startswith("doc-")
@@ -17,6 +28,7 @@ def current_user(request: Request, authorization: str | None = Header(default=No
             if (staff or ops or doctor) and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", subject):
                 raise HTTPException(401, "Authentication required")
             request.state.user = subject
+            request.state.patient_id = subject
             request.state.role = ("ops" if ops else "front_desk" if staff else
                                   "doctor" if doctor else "patient")
             if request.url.path.startswith("/frontdesk") != staff or request.url.path.startswith("/ops") != ops:

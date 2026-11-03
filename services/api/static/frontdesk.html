@@ -4,27 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sahyog Front desk</title>
-  <style>
-    body { font: 16px system-ui; max-width: 1100px; margin: 30px auto; color: #183b38; }
-    table { width: 100%; border-collapse: collapse; }
-    td, th { padding: 10px; text-align: left; border-bottom: 1px solid #ccc; }
-    button, input { font: inherit; padding: 8px; margin: 5px; }
-  </style>
+  <link rel="stylesheet" href="/static/sahyog.css">
 </head>
 <body>
+<header class="site-header"><div class="inner"><div class="brand">Sahyog Care Companion <span class="demo-badge">Demo · synthetic data</span></div>
+<nav class="site-nav" aria-label="Main"><a href="/">Patient</a><a href="/frontdesk" aria-current="page">Front desk</a><a href="/scribe">Doctor</a><a href="/ops">Ops</a></nav></div></header>
+<div class="page">
   <h1>Front desk</h1>
-  <form id="staff-auth">
+  <div class="persona-bar"><span class="label">Sign in as</span><div class="persona-list" id="persona-list"></div>
+  <details><summary>Other identity</summary>
+  <form id="staff-auth" class="other-row">
     <label>Signed in as <input id="staff" autocomplete="username"></label>
     <button id="refresh">Refresh</button>
-  </form>
-  <p id="error" role="alert"></p>
+  </form></details></div>
+  <p id="error" role="alert" class="muted"></p>
+  <section class="card">
   <h2>Escalation queue</h2>
-  <table id="queue"></table>
+  <div class="table-wrap"><table id="queue"></table></div>
+  </section>
+  <section class="card" style="margin-top:16px">
   <h2>Bookings</h2>
   <label>Booked by
-    <select id="by"><option>assistant</option><option>front_desk</option><option>patient</option></select>
+    <select id="by" style="max-width:260px"><option>assistant</option><option>front_desk</option><option>patient</option></select>
   </label>
-  <table id="bookings"></table>
+  <div class="table-wrap"><table id="bookings"></table></div>
+  </section>
+</div>
   <script>
     const $ = id => document.getElementById(id);
     const tokenKey = "sahyogStaffToken";
@@ -43,8 +48,32 @@
       };
       const response = await fetch(path, options);
       const data = await response.json();
-      if (!response.ok) throw Error(data.detail);
+      if (!response.ok) throw Error(typeof data.detail === "string" ? data.detail : "");
       return data;
+    }
+
+    function friendly(error) {
+      const m = String((error && error.message) || "");
+      if (/authentication required/i.test(m)) return "Please choose a sign-in persona above.";
+      if (/role not permitted/i.test(m)) return "This identity cannot use the front desk. Pick the front desk persona.";
+      if (/failed to fetch|networkerror/i.test(m)) return "We could not reach the server. Please try again in a moment.";
+      if (!m || /^[\[{]/.test(m) || /unexpected token|json/i.test(m)) return "Something went wrong. Please try again.";
+      return m;
+    }
+
+    function chip(text, kind) {
+      const span = document.createElement("span");
+      span.className = `chip ${kind}`;
+      span.textContent = text;
+      return span;
+    }
+
+    function emptyRow(table, text) {
+      const row = document.createElement("tr");
+      const td = cell(row, text);
+      td.className = "empty-state";
+      td.colSpan = 6;
+      table.append(row);
     }
 
     function cell(row, text) {
@@ -59,10 +88,14 @@
         $("error").textContent = "";
         const queue = await api("/frontdesk/api/escalations?status=open");
         $("queue").replaceChildren();
+        if (!queue.length) emptyRow($("queue"), "No open hand-offs. Nothing is waiting for the front desk.");
         for (const escalation of queue) {
           const row = document.createElement("tr");
           for (const value of [escalation.patient_id, escalation.purpose, escalation.at_display, JSON.stringify(escalation.detail)]) {
             cell(row, value);
+          }
+          if (/emergency|red.?flag/i.test(String(escalation.purpose))) {
+            row.children[1].prepend(chip("Emergency — go to desk", "emergency"), " ");
           }
           const handled = document.createElement("button");
           handled.textContent = "Handled";
@@ -73,12 +106,15 @@
 
         const bookings = await api(`/frontdesk/api/bookings?booked_by=${$("by").value}`);
         $("bookings").replaceChildren();
+        if (!bookings.length) emptyRow($("bookings"), "No bookings to show for this filter.");
         for (const booking of bookings) {
           const row = document.createElement("tr");
           for (const value of [booking.patient_id, booking.doctor || booking.doctor_name, booking.clinic,
-            booking.starts_at_display, booking.status]) {
+            booking.starts_at_display]) {
             cell(row, value);
           }
+          cell(row, "").append(chip(booking.status === "booked" ? "Booked" : String(booking.status),
+            booking.status === "booked" ? "booked" : "neutral"));
           if (booking.status === "booked") {
             const actions = cell(row, "");
             const cancel = document.createElement("button");
@@ -99,7 +135,7 @@
           $("bookings").append(row);
         }
       } catch (error) {
-        $("error").textContent = error.message;
+        $("error").textContent = friendly(error);
       }
     }
 
@@ -114,7 +150,7 @@
         await api(path, body);
         await refresh();
       } catch (error) {
-        $("error").textContent = error.message;
+        $("error").textContent = friendly(error);
       } finally {
         acting = false;
         buttons.forEach(button => button.disabled = false);
@@ -127,7 +163,25 @@
       refresh();
     });
     $("by").onchange = refresh;
+    const personas = [["Front desk · FD01", "FD01"]];
+    function markPersona() {
+      for (const b of document.querySelectorAll("#persona-list button")) {
+        b.setAttribute("aria-pressed", String(b.dataset.id === $("staff").value.trim()));
+      }
+    }
+    for (const [label, id] of personas) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "secondary";
+      b.textContent = label;
+      b.dataset.id = id;
+      b.setAttribute("aria-pressed", "false");
+      b.onclick = () => { $("staff").value = id; markPersona(); $("staff-auth").requestSubmit(); };
+      $("persona-list").append(b);
+    }
+    markPersona();
     if (savedToken) refresh();
+    else $("error").textContent = "Choose a sign-in persona above to see the queue.";
   </script>
 </body>
 </html>

@@ -254,6 +254,27 @@ def test_mcp_stock_role_and_unapproved_agent_audit(client):
     assert rejected["detail"]["trace_id"] == rejected["trace_id"]
 
 
+def test_mcp_demo_prints_clean_rejection_and_exits_one(monkeypatch, capsys):
+    import sys
+    import tools.mcp_demo as demo
+
+    request = httpx2.Request("GET", "http://localhost:8000/mcp/")
+    response = httpx2.Response(403, request=request)
+    rejection = httpx2.HTTPStatusError("forbidden", request=request, response=response)
+
+    def reject(coroutine):
+        coroutine.close()
+        raise rejection
+
+    monkeypatch.setattr(demo.asyncio, "run", reject)
+    monkeypatch.setattr(sys, "argv", ["mcp_demo.py", "--agent-id", "rogue-agent"])
+
+    assert demo.main() == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "Agent 'rogue-agent' rejected by the server (403: agent not approved)\n"
+
+
 @pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
 def test_mcp_postgres_audit_and_span_are_written(monkeypatch):
     import psycopg

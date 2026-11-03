@@ -6,23 +6,26 @@ for retries. W1 passes the resume key to the booking store; the database's
 unique `(patient_id, idempotency_key)` constraint deduplicates appointments.
 CLI callers retain the trace/slot fallback. The demo submits triage once, disables its button while working, and polls the owner-only `GET /w1/{thread_id}` every two seconds for up to 30 seconds when running or recovering an error with a known thread ID. Transport failures before any thread ID reaches the browser cannot be polled; the page reports the error without resubmitting.
 
-The single-replica API uses thread-safe token buckets for both authenticated
-patient and connection address. Reads (including triage and clarification)
+The API uses Postgres-backed token buckets for both authenticated patient and
+connection address, shared by API replicas and MCP. SHA-256 bucket identifiers
+avoid storing patient IDs or addresses in the limiter table; Postgres advisory
+locks make refill and consume atomic across processes. Reads (including triage and clarification)
 default to `RL_READ_PER_MIN=30`; pick-slot resumes use the separate
 `RL_BOOK_PER_HOUR=20` bucket. Invalid slot choices consume booking tokens too.
 429 responses include `Retry-After` and produce a `rate_limited` audit event.
-Clients sharing an address share its bucket. Architect deployments must move
-these limits to the gateway/Redis. Triage keys map durably to thread IDs in
-`w1_request` (migration 006); in-flight replays return 202 running and
-completed replays read the current checkpoint. Other response replay caching
-is process-local; completed booking resumes also recover from checkpoint state,
-and appointment deduplication remains in the store.
+Clients sharing an address share its bucket. Initial W1 triage requests are
+fingerprinted and reserved durably in `w1_request` (migration 006, extended by
+014); in-flight replays return 202 running and completed requests read the
+shared checkpoint. W1 resume responses and upload idempotency are stored in
+`api_replay_request` with a 15-minute claim lease. Appointment and content-hash
+deduplication remain database-enforced. In-memory request stores and buckets are
+only used by explicitly injected test dependencies.
 
 Each request produces JSON metadata with UTC timestamp, method, route-template
 path, status, latency, hashed user, trace/thread IDs, and workflow route. Body
 text is excluded. W1/W2 responses include `X-Trace-Id`, including errors.
 
-## Manual load probe
+## Manual booking-limit probe
 
 `tools/load_book.py` is manual only. Point it at a running API configured with
 ScriptedLLM, a synthetic patient, and at least 21 available matching slots.
@@ -38,6 +41,22 @@ the booking limit. With defaults and sufficient capacity, expect about 20
 successes and 980 responses with status 429. The probe fails explicitly on
 setup failures, such as exhausted appointment capacity or a non-pick-slot
 interrupt.
+
+## Horizontal load test
+
+The Compose `scale` profile starts two API replicas and Nginx on port 8080.
+Normal HTTP traffic is round-robin; `/mcp/` uses `ip_hash` because Streamable HTTP
+session state is process-local. A changed client IP or lost replica requires a
+new MCP initialization; normal REST requests do not need affinity.
+
+`python tools/load_test.py` schedules 1,400 HTTP requests/hour for 15 minutes by
+default and supports `--burst` (5x for the first two minutes). It uses synthetic
+subjects loaded from Postgres, fresh idempotency keys, demo tokens and the
+load-test model stub. Only LLM calls are replaced; safety rules, de-identification,
+retrieval, persistence, tracing and upload enqueue remain active. Run results are
+saved as `evals/runs/load-<timestamp>.json/.md`; targets are W1 p95 <4 s, W2
+p95 <8 s and W3 p95 <20 s. The report generator and `/ops` read the latest saved
+result. See [ADR-007](adr/ADR-007-scaling-and-load.md).
 
 ## Front desk and uploads
 
@@ -62,11 +81,15 @@ no token receive 401, and patient or other-role tokens receive 403.
 | GET /ops/api/traces/{trace_id} | ops | Trace tree |
 | POST /records/upload | patient | Required Idempotency-Key; current user only, multipart PDF magic and 10 MB limit; 202 queued |
 | GET /records/documents | patient | Own documents only; status/error and ISO plus IST upload time |
+| DELETE /records/documents/{doc_id} | patient | Erases only an owned patient upload; file deletion is confined to the upload root; hospital reports and signed W3 notes return 409 |
+| POST /records/consents | patient | Grants caregiver scope and expiry; patient identity comes from the bearer token |
+| DELETE /records/consents/{caregiver_id} | patient | Withdraws active caregiver consent and writes an audit event |
+| POST /w2/ask | patient, caregiver | Patient identity is taken from the bearer token; a demo caregiver token uses `caregiver-{caregiver_id}-for-{patient_id}` and is limited to W2; consent is checked on each request |
 
-Core ingestion runs in a FastAPI in-process background task with the
-startup-loaded embedder. Pro moves it to a queue with a job id. Restarting Core
-can interrupt a pending upload. Uploads use the fixture ingestion guards,
-including identity stripping and injection flags.
+Uploads use the durable ingest queue and worker, with owner-bound job status.
+Erasure serializes against an active ingest job and removes the upload, document,
+chunks/embeddings, document PHI token map, and job link in the same audited
+operation. Only files resolved inside the configured upload root may be removed.
 
 ## Incident 2026-11-02
 

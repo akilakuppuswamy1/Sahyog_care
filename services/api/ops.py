@@ -10,7 +10,7 @@ from pathlib import Path
 from statistics import median
 
 from services.api import frontdesk
-from services.agent.llm import breaker_snapshot
+from services.agent.llm import breaker_snapshot, load_test_stub_provenance
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -60,6 +60,18 @@ def _latest_eval(workflow: str, metric: str, runs_dir: Path) -> tuple[object, st
     return latest[1], f"evals/runs/{latest[2]} ({latest[0]})"
 
 
+def _latest_load_run(runs_dir: Path) -> tuple[dict, str] | None:
+    candidates = []
+    for path in runs_dir.glob("load-*.json"):
+        run = json.loads(path.read_text(encoding="utf-8"))
+        run_id = run.get("meta", {}).get("run_id", path.stem)
+        candidates.append((run_id, path, run))
+    if not candidates:
+        return None
+    _, path, run = max(candidates, key=lambda item: (item[0], item[1].name))
+    return run, f"evals/runs/{path.name}"
+
+
 def _add_tile(tiles: list[dict], tile_id: str, label: str, value: object,
               source: str | None) -> None:
     if value is not None and source:
@@ -80,6 +92,11 @@ def build_ops_summary(deps, runs_dir: Path | None = None) -> dict:
     since = now - timedelta(hours=24)
     spans = _read_spans(deps, since=since)
     tiles: list[dict] = []
+    if os.environ.get("LLM_STUB") == "1":
+        _add_tile(tiles, "model-mode", "model mode", "load-test stub",
+                  "LLM_STUB=1; SAHYOG_DEMO_AUTH=1")
+        _add_tile(tiles, "stub-latency-source", "load-test stub latency source",
+                  load_test_stub_provenance(), "saved eval runs; LLM_STUB_LATENCY_MS override if set")
     conn = getattr(getattr(deps, "store", None), "conn", None)
     if conn is not None and conn.execute("SELECT to_regclass('ingest_job')").fetchone()[0]:
         count, depth, age = conn.execute("""SELECT count(*),count(*) FILTER (WHERE status='queued'),
@@ -148,6 +165,54 @@ def build_ops_summary(deps, runs_dir: Path | None = None) -> dict:
                       "span gap: first and resumed present_and_pick nodes, last 24 h")
 
     eval_dir = runs_dir or ROOT / "evals" / "runs"
+    latest_load = _latest_load_run(eval_dir)
+    if latest_load:
+        load_run, source = latest_load
+        summary = load_run.get("summary", {})
+        meta = load_run.get("meta", {})
+        observed = meta.get("observed_replicas", [])
+        _add_tile(tiles, "latest-load-test", "Latest load test", {
+            "run_id": meta.get("run_id"),
+            "status": load_run.get("status", "not recorded"),
+            "requests": summary.get("requests"),
+            "requests_per_second": summary.get("requests_per_second"),
+            "error_rate": summary.get("error_rate"),
+            "rate_429": summary.get("rate_429"),
+            "replicas": {"configured": meta.get("configured_replicas"),
+                         "observed": len(observed), "ids": observed},
+        }, source)
+        for workflow, values in load_run.get("workflows", {}).items():
+            if workflow not in {"w1", "w2", "w3"}:
+                continue
+            _add_tile(tiles, f"load-{workflow}-p95", f"latest load {workflow.upper()} p95",
+                      {"p95_s": round(float(values["p95_ms"]) / 1000, 3)
+                       if values.get("p95_ms") is not None else None,
+                       "target_s": float(values["target_ms"]) / 1000,
+                       "pass": bool(values["pass"]), "count": values.get("count", 0)}, source)
+        for endpoint, values in load_run.get("routes", {}).items():
+            endpoint_id = (endpoint.lower().replace(" /", "-").replace("/", "-")
+                           .replace("{", "").replace("}", "").replace("_", "-")
+                           .replace(" ", "-"))
+            _add_tile(tiles, f"load-endpoint-{endpoint_id}",
+                      f"latest load {endpoint} p95", {
+                          "run_id": meta.get("run_id"),
+                          "p95_ms": values.get("p95_ms"),
+                          "target_ms": values.get("target_ms"),
+                          "pass": values.get("pass"),
+                          "count": values.get("count", 0),
+                          "rps": values.get("rps"),
+                      }, source)
+        _add_tile(tiles, "load-errors", "latest load errors", {
+            "error_rate": summary.get("error_rate"),
+            "rate_429": summary.get("rate_429"),
+            "degraded_rate": summary.get("degraded_rate"),
+        }, source)
+        _add_tile(tiles, "load-replicas", "latest load replicas", {
+            "configured": meta.get("configured_replicas"),
+            "observed": len(observed),
+            "ids": observed,
+        }, source)
+
     red_flag = _latest_eval("w1", "red_flag_recall", eval_dir)
     if red_flag:
         _add_tile(tiles, "red-flag-recall", "red-flag recall", red_flag[0], red_flag[1])

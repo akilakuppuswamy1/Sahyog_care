@@ -108,7 +108,8 @@ def seed_demo_patients(conn):
 def main():
     from dotenv import load_dotenv
 
-    load_dotenv(ROOT / ".env")
+    if os.environ.get("PYTHON_DOTENV_DISABLED") != "1":
+        load_dotenv(ROOT / ".env")
     import psycopg
 
     generate_missing()

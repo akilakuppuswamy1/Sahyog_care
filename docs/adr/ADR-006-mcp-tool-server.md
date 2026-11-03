@@ -35,7 +35,7 @@ W3 adapter.
   only with explicit `on_behalf_of`, and the event records the staff actor and patient.
   Doctor/ops roles cannot book. `check_stock` is front desk/doctor only; booking status
   is owner/staff scoped.
-- Reuse the API `RateLimiter`, use the database booking function's idempotency, return
+- Reuse the API's Postgres-backed `RateLimiter`, use the database booking function's idempotency, return
   minimal results, and write an audit event and an argument-free MCP span for each call.
 - Keep Streamable HTTP DNS-rebinding protection enabled; configure allowed hosts/origins
   for the deployment. These controls still depend on forgeable demo auth and are not
@@ -53,12 +53,13 @@ and satisfies the pack's 2.3.x line.
 
 - Approved agent hosts discover typed tools without receiving a second scheduling or
   inventory implementation.
-- The mounted server shares the API's patient/IP token buckets; standalone mode uses
-  the same limiter implementation and limits but has separate in-process buckets.
+- The mounted and standalone servers share patient/IP token buckets through Postgres;
+  transport session affinity is a separate deployment concern.
 - MCP calls join the existing append-only audit and Postgres trace system. Trace IDs
   remain sensitive correlators, and spans do not contain arguments.
-- Production rollout still requires a trusted identity provider, agent enrollment,
-  approved host/origin configuration and distributed rate limiting.
+- Production rollout still requires a trusted identity provider, agent enrollment and
+  approved host/origin configuration. Behind a balancer, see [ADR-007](ADR-007-scaling-and-load.md)
+  for MCP source-IP affinity and its reconnect limitation.
 
 ## References
 

@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def build_report(runs_dir: Path) -> str:
     runs = [(p, json.loads(p.read_text(encoding="utf-8"))) for p in sorted(runs_dir.glob("*.json"))]
+    ingest_benchmarks = sorted(runs_dir.glob("ingest-bench-*.json"))
+    load_runs = [(p, r) for p, r in runs if p.name.startswith("load-")]
     latest = {}
     calibrations = [r for p, r in runs if p.name.startswith("judge-calibration-")]
     for p, run in sorted(runs, key=lambda pair: (pair[1].get("meta", {}).get("run_id", pair[0].stem), pair[0].name)):
@@ -170,7 +172,66 @@ def build_report(runs_dir: Path) -> str:
               "See the generated [cost worksheet](../docs/cost-sheet.md) for measured saved-run token totals, "
               "workflow-specific price formulas, the consultation-cost scenario and documented gaps. "
               "Generate it with `python tools/build_cost_sheet.py`; no evaluation is run.", "",
-              "## Misses and incidents", "", "W2 run history (values read from saved JSON):"]
+              "## Latest load test", ""]
+    if load_runs:
+        load_path, load_run = max(
+            load_runs,
+            key=lambda pair: (pair[1].get("meta", {}).get("run_id", pair[0].stem), pair[0].name),
+        )
+        meta = load_run.get("meta", {})
+        summary = load_run.get("summary", {})
+        model_latency = meta.get("model_latency", {})
+        lines += [
+            f"Saved run: [evals/runs/{load_path.name}](runs/{load_path.name}) — "
+            f"run id `{meta.get('run_id', load_path.stem)}`; "
+            f"**{load_run.get('status', 'not recorded')}**; "
+            f"{summary.get('requests', 'not recorded')} requests; "
+            f"{summary.get('requests_per_second', 'not measured')} RPS; "
+            f"error rate {summary.get('error_rate', 'not measured')}; "
+            f"429 rate {summary.get('rate_429', 'not measured')}; "
+            f"{len(meta.get('observed_replicas', []))}/{meta.get('configured_replicas', 'not recorded')} "
+            "replicas observed.",
+            "",
+            (("Model latency is stubbed for this run. Provenance: "
+              f"`{json.dumps(model_latency, sort_keys=True)}`.")
+             if model_latency else
+             "Live model calls were explicitly permitted for this run."),
+            "",
+            "| Workflow | p95 (ms) | Target (ms) | Result |",
+            "|---|---:|---:|---|",
+        ]
+        for workflow, values in sorted(load_run.get("workflows", {}).items()):
+            lines.append(f"| {workflow.upper()} | {values.get('p95_ms', 'not measured')} | "
+                         f"{values.get('target_ms', 'not recorded')} | "
+                         f"{'PASS' if values.get('pass') else 'FAIL'} |")
+        lines += ["", "### Per-endpoint p95", "",
+                  "| Endpoint | RPS | p95 (ms) | Target (ms) | Result |",
+                  "|---|---:|---:|---:|---|"]
+        for endpoint, values in sorted(load_run.get("routes", {}).items()):
+            lines.append(f"| {endpoint} | {values.get('rps', 'not measured')} | "
+                         f"{values.get('p95_ms', 'not measured')} | "
+                         f"{values.get('target_ms', 'not recorded')} | "
+                         f"{'PASS' if values.get('pass') else 'FAIL'} |")
+    else:
+        lines.append("Not measured; run `python tools/load_test.py` against the scale profile to create a saved load run.")
+    lines += ["", "## Latest ingest benchmark", ""]
+    if ingest_benchmarks:
+        benchmark_path = ingest_benchmarks[-1]
+        benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
+        sequential = benchmark["sequential"]
+        parallel = benchmark["parallel"]
+        lines += [f"Saved offline benchmark: [evals/runs/{benchmark_path.name}](runs/{benchmark_path.name}) "
+                  f"({benchmark.get('meta', {}).get('documents', 'not recorded')} synthetic documents).", "",
+                  "| Mode | Docs/s | p95 per document (s) | Peak concurrency | Failures |",
+                  "|---|---:|---:|---:|---:|"]
+        for label, metrics in (("Sequential", sequential), ("Parallel", parallel)):
+            lines.append(f"| {label} | {metrics.get('docs_per_second', 'not measured')} | "
+                         f"{metrics.get('p95_per_document_seconds', 'not measured')} | "
+                         f"{metrics.get('peak_concurrency', 'not measured')} | "
+                         f"{metrics.get('failed_documents', 'not measured')} |")
+    else:
+        lines.append("Not measured; run `python tools/bench_ingest.py` to create a saved offline benchmark.")
+    lines += ["", "## Misses and incidents", "", "W2 run history (values read from saved JSON):"]
     for p, r in runs:
         if p.name.startswith("w2-"):
             m = r["metrics"]
