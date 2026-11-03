@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import csv
 import json
+from pathlib import Path
 
 import pytest
 
 from services.agent.w3.formulary import PLACEHOLDER, Formulary, default_formulary
-from services.agent.w3.nodes import PROMPT_VERSION, SYSTEM_PROMPT, grounding_check
+from services.agent.w3.nodes import GROUNDING_VERSION, PROMPT_VERSION, SYSTEM_PROMPT, grounding_check
 from services.agent.w3.stock import CsvStockAdapter
 
 FORMULARY = Formulary([
@@ -21,6 +22,7 @@ FORMULARY = Formulary([
     {"name": "Dualex 5 Tablet", "composition": "telmisartan (40mg)"},
     {"name": "Multimix Tablet", "composition": "amoxycillin (500mg) + clavulanic acid (125mg)"},
     {"name": "Multimix Tablet", "composition": "amoxycillin (500mg)"},
+    {"name": "metformin", "composition": "metformin (500mg)"},
 ])
 EMPTY = Formulary([])
 
@@ -46,8 +48,10 @@ def test_brand_is_never_the_molecule_and_resolves_through_the_formulary(model_mo
     checked = ground(transcript, [medicine("Atorva", model_molecule, "10 mg", "Atorva 10 mg at night",
                                           "at night")])
     item = checked["medicines"][0]
-    assert item["molecule"] == "atorvastatin"
-    assert item["source"] == "formulary:Atorva"
+    assert item["molecule"] == (PLACEHOLDER if model_molecule == "Atorva" else "atorvastatin")
+    assert item["source"] == (None if model_molecule == "Atorva" else "formulary:Atorva")
+    if model_molecule == "Atorva":
+        assert "molecule_invalid" in kinds(checked)
     assert not kinds(checked) & {"molecule_unresolved", "molecule_ambiguous"}
 
 
@@ -94,6 +98,72 @@ def test_multi_ingredient_brand_is_allowed_only_with_one_formulary_composition()
     split = ground(transcript, [medicine("Dualex 5", "", "5 mg", "Dualex 5 tablet daily")])
     assert split["medicines"][0]["molecule"] == PLACEHOLDER
     assert "molecule_ambiguous" in kinds(split)
+
+
+def test_saved_w3_005_dose_in_molecule_field_is_rejected_and_brand_is_grounded():
+    cases = [json.loads(line) for line in
+             (Path(__file__).resolve().parents[3] / "evals" / "sets" / "w3_scribe.jsonl")
+             .read_text(encoding="utf-8").splitlines()]
+    case = next(item for item in cases if item["id"] == "w3-005")
+    model_output = {
+        "name": "Augmentin 625 Duo Tablet",
+        "molecule": "625 mg",
+        "dose": "625 mg",
+        "frequency": "twice daily",
+        "quote": "Augmentin 625 Duo Tablet 625 mg twice daily",
+    }
+
+    checked = ground(case["transcript"], [model_output])
+
+    item = checked["medicines"][0]
+    assert item["name"] == "Augmentin 625 Duo Tablet"
+    assert item["molecule"] == PLACEHOLDER
+    assert item["dose"] == "625 mg"
+    assert item["source"] is None
+    assert "molecule_invalid" in kinds(checked)
+
+
+@pytest.mark.parametrize("value", ["625 mg", "500", "twice daily", "zorbamycin"])
+def test_non_ingredient_molecule_values_are_rejected(value):
+    checked = ground(
+        "Doctor: Start Atorva 10 mg twice daily.",
+        [medicine("Atorva", value, "10 mg", "Atorva 10 mg twice daily", "twice daily")],
+    )
+    assert checked["medicines"][0]["molecule"] == PLACEHOLDER
+    assert "molecule_invalid" in kinds(checked)
+
+
+@pytest.mark.parametrize("transcript", [
+    "Doctor: Take metformin 500 mg twice daily. Make that 250 mg twice daily.",
+    "Doctor: Take metformin 500 mg twice daily—sorry, make that 250 mg twice daily.",
+])
+def test_correction_quote_can_use_medicine_name_from_same_doctor_turn(transcript):
+    checked = ground(
+        transcript,
+        [medicine("metformin", "metformin", "250 mg", "Make that 250 mg twice daily",
+                  "twice daily")],
+    )
+    item = checked["medicines"][0]
+    assert item["name"] == "metformin"
+    assert item["molecule"] == "metformin"
+    assert item["dose"] == "250 mg"
+
+
+@pytest.mark.parametrize("transcript", [
+    "Patient: Take metformin 500 mg. Doctor: Make that 250 mg.",
+    "Doctor: Take metformin 500 mg. Patient: Yes. Doctor: Make that 250 mg.",
+    "Doctor: Take metformin 500 mg. Make that 250 mg with aspirin.",
+    "Doctor: Take metformin 500 mg. Start aspirin 75 mg. Make that 250 mg.",
+])
+def test_correction_quote_does_not_borrow_another_speakers_or_medicines_name(transcript):
+    checked = ground(
+        transcript,
+        [medicine("metformin", "metformin", "250 mg", "Make that 250 mg")],
+    )
+    item = checked["medicines"][0]
+    assert item["name"] == PLACEHOLDER
+    assert item["molecule"] == PLACEHOLDER
+    assert "grounding" in kinds(checked)
 
 
 @pytest.mark.parametrize("model_medicines", [
@@ -156,10 +226,13 @@ def test_real_formulary_resolves_atorva_and_augmentin_by_lookup():
 
 
 def test_prompt_defines_soap_roles_and_quote_contract():
-    assert PROMPT_VERSION == "w3-prompts-v2"
+    assert PROMPT_VERSION == "w3-prompts-v3"
+    assert GROUNDING_VERSION == "w3-grounding-v2"
     for phrase in ("S (subjective)", "O (objective)", "A (assessment)", "P (plan)",
                    "P must not be empty if the doctor gave any instruction",
-                   "AND the final", "Never add, upgrade or guess a diagnosis",
+                   "AND the final", "ingredient in the formulary",
+                   "Never put a dose, strength, frequency, brand, or medicine class in molecule",
+                   "Never add, upgrade or guess a diagnosis",
                    "Do not add facts, diagnoses, medicines, molecules, doses"):
         assert phrase in " ".join(SYSTEM_PROMPT.split())
 
@@ -218,3 +291,39 @@ def test_stock_is_unknown_not_out_of_stock_without_an_unambiguous_match(tmp_path
     result = stock_adapter(tmp_path).check("C1", medicine_)
     assert result["status"] == "unknown"
     assert result["alternatives"] == []
+
+
+@pytest.mark.parametrize("transcript,quote", [
+    ("Patient: Make that metformin 250 mg.", "Make that metformin 250 mg"),
+    ("Doctor: Make that metformin 250 mg with aspirin.",
+     "Make that metformin 250 mg with aspirin"),
+])
+def test_correction_with_explicit_name_still_requires_doctor_and_no_competitor(transcript, quote):
+    checked = ground(transcript, [medicine("metformin", "metformin", "250 mg", quote)])
+    assert checked["medicines"][0]["name"] == PLACEHOLDER
+    assert checked["medicines"][0]["molecule"] == PLACEHOLDER
+    assert "grounding" in kinds(checked)
+
+
+def test_self_contained_doctor_correction_with_explicit_name_is_allowed():
+    checked = ground("Doctor: Make that metformin 250 mg.", [
+        medicine("metformin", "metformin", "250 mg", "Make that metformin 250 mg"),
+    ])
+    assert checked["medicines"][0]["name"] == "metformin"
+    assert checked["medicines"][0]["molecule"] == "metformin"
+    assert checked["medicines"][0]["dose"] == "250 mg"
+
+
+def test_correction_dose_and_frequency_do_not_count_as_competing_brand_names():
+    formulary = Formulary([
+        {"name": "metformin", "composition": "metformin (500mg)"},
+        {"name": "Daily 10mg Tablet", "composition": "tadalafil (10mg)"},
+        {"name": "Mg 10mg Tablet", "composition": "montelukast (10mg)"},
+    ])
+    checked = ground("Doctor: metformin 500 mg twice daily; sorry, make that 250 mg twice daily.", [
+        medicine("metformin", "metformin", "250 mg", "sorry, make that 250 mg twice daily",
+                 "twice daily"),
+    ], formulary)
+    assert checked["medicines"][0]["name"] == "metformin"
+    assert checked["medicines"][0]["molecule"] == "metformin"
+    assert not kinds(checked)

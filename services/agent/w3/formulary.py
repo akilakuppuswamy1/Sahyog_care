@@ -196,6 +196,29 @@ class Formulary:
         wanted = set(molecule_parts(text))
         return bool(products) and bool(wanted) and not any(wanted <= set(p.ingredients) for p in products)
 
+    def has_ingredient(self, text: str) -> bool:
+        ingredients = {
+            ingredient
+            for rows in self._build().values()
+            for _, composition in rows
+            for ingredient in parse_composition(composition)[0]
+        }
+        wanted = molecule_parts(text)
+        return bool(wanted) and all(ingredient in ingredients for ingredient in wanted)
+
+    @property
+    def known_medicine_names(self) -> tuple[str, ...]:
+        names = {
+            name for rows in self._build().values() for name, _ in rows
+        }
+        names.update(
+            ingredient
+            for rows in self._build().values()
+            for _, composition in rows
+            for ingredient in parse_composition(composition)[0]
+        )
+        return tuple(sorted(names))
+
 
 _DEFAULT: Formulary | None = None
 

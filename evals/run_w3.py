@@ -20,9 +20,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from services.agent.llm import OpenRouterLLM
 from services.agent.w3.formulary import Formulary, default_formulary
 from services.agent.w3.graph import compile_w3
-from services.agent.w3.nodes import PROMPT_VERSION
+from services.agent.w3.nodes import GROUNDING_VERSION, PROMPT_VERSION
 from services.agent.w3.stock import ClinicCsvStockAdapter
 from services.agent.w3.store import InMemoryW3Store
+from services.common.deid import warm_analyzer
 
 ROOT = Path(__file__).resolve().parents[1]
 SET = ROOT / "evals" / "sets" / "w3_scribe.jsonl"
@@ -87,13 +88,30 @@ def stock_comparisons(case: dict, prediction: dict, stock) -> list[dict]:
     rows = []
     for gold in case["gold_medicines"]:
         matching = next((item for item in prediction["medicines"]
-                         if _medicine_key(item) == _medicine_key(gold)), None)
+                         if _key(item.get("name", "")) == _key(gold.get("name", ""))), None)
         rows.append({
             "name": gold["name"], "molecule": gold.get("molecule", ""),
             "expected": stock.check(clinic_id, gold)["status"],
             "actual": matching.get("status") if matching else None,
         })
     return rows
+
+
+def _model_call_details(records: list[dict]) -> dict:
+    selected = next((record for record in records if record.get("selected")), None)
+    return {
+        "attempts": len(records),
+        "served_by": selected.get("served_by") if selected else None,
+        "provider": selected.get("provider") if selected else None,
+        "latency_s": selected.get("latency_s") if selected else None,
+        "calls": [{
+            "served_by": record.get("served_by"),
+            "provider": record.get("provider"),
+            "latency_s": record.get("latency_s"),
+            "success": record.get("success", False),
+            "selected": record.get("selected", False),
+        } for record in records],
+    }
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
@@ -174,7 +192,8 @@ def score(cases: list[dict], predictions: list[dict], stock: ClinicCsvStockAdapt
 def report_md(meta: dict, metrics: dict, predictions: list[dict]) -> str:
     lines = [
         f"# W3 scribe eval run {meta['run_id']}", "",
-        f"- model: {meta['model']} · prompt: {meta['prompt_version']} · set: v{meta['set_version']} · workflow: w3 · tokens: {meta['tokens']}", "",
+        f"- model: {meta['model']} · prompt: {meta['prompt_version']} · grounding: {meta['grounding_version']} · "
+        f"set: v{meta['set_version']} · workflow: w3 · tokens: {meta['tokens']}", "",
         "| Metric | Measured | Target | Met |", "|---|---:|---:|---|",
     ]
     for field in SOAP_FIELDS:
@@ -203,6 +222,7 @@ def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv(ROOT / ".env")
+    warm_analyzer()
     cases = [json.loads(line) for line in SET.read_text(encoding="utf-8").splitlines() if line.strip()]
     stock_dir = Path(os.environ.get(
         "W3_STOCK_DIR", ROOT / "data" / "synthetic" / "out" / "w3" / "stock"
@@ -233,6 +253,9 @@ def main() -> None:
              "doctor_id": "DR-W3-EVAL", "trace_id": trace_id},
             {"configurable": {"thread_id": trace_id}},
         )
+        with llm.usage._lock:
+            call_records = [dict(record) for record in llm.usage.call_records
+                            if record["trace_id"] == trace_id]
         state = out
         soap = state.get("soap_json") or {**dict.fromkeys(SOAP_FIELDS, ""), "medicines": []}
         predictions.append({
@@ -242,6 +265,7 @@ def main() -> None:
             "initial_model": state.get("initial_soap_json"),
             "clinic_id": encounters[encounter_id]["clinic_id"],
             "latency_s": round(time.perf_counter() - started, 3),
+            "model_calls": _model_call_details(call_records),
         })
         predictions[-1]["stock_expected_vs_actual"] = stock_comparisons(case, predictions[-1], stock)
         print(f"{case['id']}: {predictions[-1]['route']:15} {predictions[-1]['latency_s']}s")
@@ -250,7 +274,8 @@ def main() -> None:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     meta = {
         "run_id": run_id, "mode": "graph", "workflow": "w3", "model": llm.model,
-        "prompt_version": PROMPT_VERSION, "set_version": cases[0].get("set_version") if cases else None,
+        "prompt_version": PROMPT_VERSION, "grounding_version": GROUNDING_VERSION,
+        "set_version": cases[0].get("set_version") if cases else None,
         "tokens": {"calls": llm.usage.calls, "prompt": llm.usage.prompt_tokens,
                    "completion": llm.usage.completion_tokens},
     }

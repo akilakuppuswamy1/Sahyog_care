@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from evals.run_w3 import _f1, _medicine_key, score, stock_comparisons
+from evals.run_w3 import _f1, _medicine_key, _model_call_details, score, stock_comparisons
 from services.agent.w3.formulary import Formulary
 
 
@@ -78,3 +78,51 @@ def test_stock_expected_versus_actual_is_recorded_per_medicine():
                                "dose": "[doctor to specify]"}]
     assert stock_comparisons(case, prediction, FixtureStock()) == [
         {"name": "statin", "molecule": "[doctor to specify]", "expected": "unknown", "actual": "unknown"}]
+
+
+def test_stock_comparison_falls_back_to_predicted_medicine_name():
+    case, prediction = _case([{
+        "name": "Atorva", "molecule": "[doctor to specify]", "dose": "10 mg",
+        "status": "in_stock",
+    }])
+    case["gold_medicines"] = [{
+        "name": "Atorva", "molecule": "atorvastatin", "dose": "10 mg",
+    }]
+
+    assert stock_comparisons(case, prediction, FixtureStock()) == [{
+        "name": "Atorva", "molecule": "atorvastatin",
+        "expected": "out_of_stock", "actual": "in_stock",
+    }]
+
+
+def test_model_call_details_preserve_attempt_provider_and_serving_data():
+    details = _model_call_details([
+        {"served_by": "primary", "provider": "provider-a", "latency_s": 0.4,
+         "success": True, "selected": False},
+        {"served_by": "hedge", "provider": "provider-b", "latency_s": 0.2,
+         "success": True, "selected": True},
+    ])
+
+    assert details == {
+        "attempts": 2,
+        "served_by": "hedge",
+        "provider": "provider-b",
+        "latency_s": 0.2,
+        "calls": [
+            {"served_by": "primary", "provider": "provider-a", "latency_s": 0.4,
+             "success": True, "selected": False},
+            {"served_by": "hedge", "provider": "provider-b", "latency_s": 0.2,
+             "success": True, "selected": True},
+        ],
+    }
+
+
+def test_stock_comparison_uses_same_name_even_when_other_brand_matches_molecule():
+    case, prediction = _case([
+        {"name": "Other brand", "molecule": "atorvastatin", "dose": "10 mg",
+         "status": "out_of_stock"},
+        {"name": "Atorva", "molecule": "[doctor to specify]", "dose": "10 mg",
+         "status": "unknown"},
+    ])
+    case["gold_medicines"] = [{"name": "Atorva", "molecule": "atorvastatin", "dose": "10 mg"}]
+    assert stock_comparisons(case, prediction, FixtureStock())[0]["actual"] == "unknown"

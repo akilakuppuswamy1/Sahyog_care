@@ -23,6 +23,7 @@ from services.api.deps import build_postgres_deps
 from services.api.ratelimit import RateLimiter
 from services.api.ops import build_ops_summary, build_trace_tree
 from services.agent.w3.stock import NotConfigured
+from services.common.deid import warm_analyzer
 
 UPLOAD_ROOT = Path(__file__).resolve().parents[2] / "data" / "uploads"
 
@@ -72,6 +73,7 @@ def w1_response(thread, out):
 def create_app(deps_factory=build_postgres_deps):
     @asynccontextmanager
     async def lifespan(app):
+        warm_analyzer()
         app.state.deps = deps_factory()
         try:
             yield

@@ -1,0 +1,23 @@
+{
+  "seed": 701,
+  "payloads": 200,
+  "total_hits": 0,
+  "refused": 0,
+  "recall": {
+    "PERSON": 1.0,
+    "PHONE": 1.0,
+    "AADHAAR": 1.0,
+    "ABHA": 1.0,
+    "ABHA_ADDRESS": 1.0,
+    "PAN": 1.0,
+    "PIN": 1.0,
+    "PATIENT_ID": 1.0,
+    "EMAIL": 1.0,
+    "DOB": 1.0
+  },
+  "false_positive_rate": 0.0,
+  "deid_ms_median": 9.336549997897237,
+  "deid_ms_p95": 14.295799999672454,
+  "deid_ms_max": 33.74460000122781,
+  "run_id": "egress-20261103-051910"
+}

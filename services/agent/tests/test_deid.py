@@ -53,6 +53,24 @@ def test_name_context_does_not_remove_symptoms_and_named_dob_is_removed():
     assert deid.reidentify(outbound, mapping) == "My name is Priya Nair. DOB: 12 January 1980."
 
 
+def test_analyzer_warmup_runs_once(monkeypatch):
+    calls = []
+
+    class FakeAnalyzer:
+        def analyze(self, **kwargs):
+            calls.append(kwargs)
+            return []
+
+    monkeypatch.setattr(deid, "_WARMED", False)
+    monkeypatch.setattr(deid, "analyzer", lambda: FakeAnalyzer())
+
+    deid.warm_analyzer()
+    deid.warm_analyzer()
+
+    assert len(calls) == 1
+    assert calls[0]["text"] == "Sahyog de-identification warm-up."
+
+
 @pytest.mark.parametrize("workflow", ["w1", "w2", "w3"])
 def test_production_transport_hedge_restoration_and_spans(monkeypatch, workflow):
     module._reset_circuit_breakers()
@@ -90,3 +108,29 @@ def test_invalid_aadhaar_refused_without_transport(monkeypatch):
     client = module.OpenRouterLLM(model="synthetic", api_key="synthetic-test", max_retries=0)
     with pytest.raises(module.ModelError):
         client.complete_json("", "Aadhaar 234567890123", purpose="w1.test", trace_id="synthetic-refusal")
+
+@pytest.mark.parametrize("module_name", [
+    "evals.run_w1", "evals.run_w2", "evals.run_w3", "services.records.worker",
+])
+def test_entrypoints_warm_before_processing(monkeypatch, module_name):
+    import importlib
+    import dotenv
+
+    module = importlib.import_module(module_name)
+    calls = []
+
+    class StartupStopped(Exception):
+        pass
+
+    def warm():
+        calls.append("warm")
+        raise StartupStopped
+
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr("sys.argv", [module_name])
+    monkeypatch.setattr(deid, "warm_analyzer", warm)
+    if hasattr(module, "warm_analyzer"):
+        monkeypatch.setattr(module, "warm_analyzer", warm)
+    with pytest.raises(StartupStopped):
+        module.main()
+    assert calls == ["warm"]

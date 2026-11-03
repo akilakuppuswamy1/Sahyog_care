@@ -4,6 +4,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from services.api.deps import build_test_deps
+from services.api import main as api_main
 from services.api.main import create_app
 
 
@@ -16,6 +17,16 @@ def client(monkeypatch):
     monkeypatch.setenv("SAHYOG_DEMO_AUTH", "1")
     with TestClient(create_app(build_test_deps)) as client:
         yield client
+
+
+def test_lifespan_warms_deid_analyzer_once(monkeypatch):
+    calls = []
+    monkeypatch.setattr(api_main, "warm_analyzer", lambda: calls.append("warm"))
+
+    with TestClient(create_app(build_test_deps)):
+        pass
+
+    assert calls == ["warm"]
 
 
 def test_auth(client, monkeypatch):

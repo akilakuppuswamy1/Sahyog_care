@@ -24,6 +24,7 @@ PATTERNS = {
     "PERSON": r"(?i:\b(?:(?:patient(?: name)?|name)\s*[:=]|my name is|I am)\s*)([A-Z][a-z]+(?: [A-Z][a-z]+){1,3})",
 }
 _LOCK = RLock()
+_WARMED = False
 
 
 def verhoeff_valid(value: str) -> bool:
@@ -67,6 +68,20 @@ def analyzer() -> AnalyzerEngine:
         registry.add_recognizer(cls(supported_entity=kind, patterns=[Pattern(kind, regex, 0.85)],
                                     global_regex_flags=re.MULTILINE))
     return AnalyzerEngine(nlp_engine=nlp, registry=registry)
+
+
+def warm_analyzer() -> None:
+    global _WARMED
+    with _LOCK:
+        if _WARMED:
+            return
+        analyzer().analyze(
+            text="Sahyog de-identification warm-up.",
+            language="en",
+            entities=list(PATTERNS),
+            score_threshold=0.5,
+        )
+        _WARMED = True
 
 
 def deidentify(text: str, token_map: dict[str, str]) -> str:

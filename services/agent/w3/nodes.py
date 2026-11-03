@@ -15,9 +15,12 @@ from services.agent.w3.stock import StockSource
 from services.agent.w3.store import W3Store
 
 
-PROMPT_VERSION = "w3-prompts-v2"   # v2: S/O/A/P roles, P never empty, quote holds name + final dose (run 20261102-220544)
+PROMPT_VERSION = "w3-prompts-v3"
+GROUNDING_VERSION = "w3-grounding-v2"
 SOAP_FIELDS = ("S", "O", "A", "P")
-GROUNDING_KINDS = frozenset({"grounding", "molecule_unresolved", "molecule_ambiguous"})
+GROUNDING_KINDS = frozenset({
+    "grounding", "molecule_invalid", "molecule_unresolved", "molecule_ambiguous",
+})
 MEDICINE_CLASSES = re.compile(
     r"\b(statins?|antibiotics?|beta[ -]?blockers?|ace inhibitors?|nsaids?|"
     r"anticoagulants?|blood thinners?|diuretics?|steroids?)\b",
@@ -27,6 +30,16 @@ DOSE_PATTERN = re.compile(
     r"\b\d+(?:\.\d+)?\s*(?:mcg|μg|mg|g|ml|iu|units?|tablets?|capsules?)\b", re.I
 )
 CORRECTION_PATTERN = re.compile(r"\b(?:sorry|actually|make that|rather|correction|i mean)\b", re.I)
+FREQUENCY_PATTERN = re.compile(
+    r"\b(?:once|twice|thrice)\s+(?:daily|a day|per day)\b|"
+    r"\b(?:daily|nightly|weekly|monthly|od|bd|bid|tid|qid|q\d+h|"
+    r"at night|in the morning|every\s+\d+\s+hours?)\b",
+    re.I,
+)
+SPEAKER_PATTERN = re.compile(
+    r"\b(doctor|patient|nurse|clinician|caregiver|physician)\s*:\s*", re.I
+)
+SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+|[\n;]+")
 
 
 class W3State(TypedDict, total=False):
@@ -105,7 +118,8 @@ Do not add facts, diagnoses, medicines, molecules, doses, or frequencies not sta
 Keep S, O, A, and P concise and faithful; do not repeat one sentence in several sections.
 Medicines: list every medicine the doctor names, as spoken (brand, generic, or class).
 - name: the medicine as spoken. Use a brand only as the name.
-- molecule: only a molecule the doctor actually says, otherwise "". Never infer it from a brand or a class.
+- molecule: only an ingredient in the formulary that the doctor actually says, otherwise "".
+  Never put a dose, strength, frequency, brand, or medicine class in molecule.
 - dose: the final dose after any correction ("sorry", "make that"), as spoken.
 - frequency: as spoken, otherwise "".
 - quote: one exact contiguous span of the transcript that contains the medicine name AND the final
@@ -199,12 +213,56 @@ def _name_in(text: str, name: str) -> bool:
     return bool(name) and (_contains(text, name) or bool(words) and _contains(text, words))
 
 
+def _correction_name_in(transcript: str, quote: str, name: str, other_names: list[str],
+                        formulary: Formulary) -> bool:
+    if not CORRECTION_PATTERN.search(quote):
+        return False
+    names = list(dict.fromkeys(
+        candidate for candidate in (*other_names, *formulary.known_medicine_names)
+        if candidate and candidate != PLACEHOLDER
+    ))
+    quote_positions = [match.start() for match in re.finditer(re.escape(quote), transcript, re.I)]
+    for quote_start in quote_positions:
+        speakers = list(SPEAKER_PATTERN.finditer(transcript))
+        for index, speaker in enumerate(speakers):
+            turn_start = speaker.end()
+            turn_end = speakers[index + 1].start() if index + 1 < len(speakers) else len(transcript)
+            if speaker.group(1).casefold() != "doctor" or not turn_start <= quote_start < turn_end:
+                continue
+            quote_end = quote_start + len(quote)
+            if quote_end > turn_end:
+                continue
+            boundary = SENTENCE_PATTERN.search(transcript, quote_end, turn_end)
+            context_end = boundary.start() if boundary else turn_end
+            prefix = transcript[turn_start:context_end]
+            medicine_context = FREQUENCY_PATTERN.sub(" ", DOSE_PATTERN.sub(" ", prefix))
+            mentioned = [candidate for candidate in names if _name_in(medicine_context, candidate)]
+            if len({_key(candidate) for candidate in mentioned}) == 1:
+                return _key(mentioned[0]) == _key(name)
+    return False
+
+
+def _invalid_molecule(value: str, formulary: Formulary) -> bool:
+    normalized = value.strip()
+    return bool(
+        re.fullmatch(r"\d+(?:\.\d+)?", normalized)
+        or DOSE_PATTERN.search(normalized)
+        or FREQUENCY_PATTERN.search(normalized)
+        or not formulary.has_ingredient(normalized)
+    )
+
+
 def _ground_medicine(medicine: dict, index: int, transcript: str, formulary: Formulary,
-                     flags: list[dict]) -> dict:
+                     flags: list[dict], other_names: list[str]) -> dict:
     """Molecule rule: stated in the quote, or the stated brand maps to one formulary composition."""
     quote, name, molecule = medicine.get("quote", ""), medicine.get("name", ""), medicine.get("molecule", "")
     quote_supported = bool(quote) and _contains(transcript, quote)
     medicine["source"] = None
+    invalid_molecule = bool(molecule and molecule != PLACEHOLDER and _invalid_molecule(molecule, formulary))
+    if invalid_molecule:
+        flags.append(_flag("molecule_invalid", index, "molecule",
+                           "molecule field is not a formulary ingredient"))
+        molecule = ""
     if not quote_supported:
         stated = next((cls for cls in (_class_in_quote(name), _class_in_quote(quote))
                        if cls and _contains(transcript, cls)), None)
@@ -213,13 +271,23 @@ def _ground_medicine(medicine: dict, index: int, transcript: str, formulary: For
         flags.append(_flag("molecule_unresolved", index, "molecule",
                            "molecule is not stated; doctor to specify"))
     else:
-        name_supported = _name_in(quote, name)
+        corrected_name_supported = _correction_name_in(
+            transcript, quote, name, other_names, formulary
+        )
+        is_correction = bool(CORRECTION_PATTERN.search(quote))
+        name_supported = (corrected_name_supported if is_correction
+                          else _name_in(quote, name))
         is_class = bool(MEDICINE_CLASSES.fullmatch(name.strip()))
         # Without a formulary an echo of the name could be a brand, so it is not taken as a molecule.
-        echoes_name = not formulary.available and _key(molecule) in {_key(name), _key(" ".join(split_name(name).words))}
+        echoes_name = not formulary.available and _key(molecule) in {
+            _key(name), _key(" ".join(split_name(name).words))
+        }
         stated_molecule = (
             bool(molecule) and molecule != PLACEHOLDER and not MEDICINE_CLASSES.fullmatch(molecule.strip())
-            and _contains(quote, molecule) and not echoes_name and not formulary.is_brand_only(molecule)
+            and (not is_correction or name_supported)
+            and (_contains(quote, molecule)
+                 or corrected_name_supported and _key(molecule) == _key(name))
+            and not echoes_name and not formulary.is_brand_only(molecule)
         )
         resolved = PLACEHOLDER
         if stated_molecule:
@@ -244,6 +312,10 @@ def _ground_medicine(medicine: dict, index: int, transcript: str, formulary: For
                                    if hit else "molecule is not stated; doctor to specify"))
         medicine["molecule"] = resolved
 
+    if invalid_molecule:
+        medicine["molecule"] = PLACEHOLDER
+        medicine["source"] = None
+
     dose = medicine.get("dose", "")
     if not dose or not quote_supported or not _dose_is_current(quote, dose):
         medicine["dose"] = PLACEHOLDER
@@ -260,8 +332,10 @@ def grounding_check(s: W3State, stock: StockSource, formulary: Formulary | None 
     transcript = s["transcript"]
     flags = [flag for flag in s.get("flags", [])
              if flag.get("kind") not in GROUNDING_KINDS | {"stock"}]
-    medicines = [_ground_medicine(dict(item), index, transcript, formulary, flags)
-                 for index, item in enumerate(s.get("medicines", []))]
+    source_medicines = s.get("medicines", [])
+    other_names = [str(item.get("name", "")) for item in source_medicines]
+    medicines = [_ground_medicine(dict(item), index, transcript, formulary, flags, other_names)
+                 for index, item in enumerate(source_medicines)]
     for item in MEDICINE_CLASSES.finditer(transcript):
         class_name = item.group(0)
         if any(_contains(existing.get("name", ""), class_name) for existing in medicines):

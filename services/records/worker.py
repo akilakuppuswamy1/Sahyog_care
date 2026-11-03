@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 
 from services.records.embed import BgeM3Embedder
 from services.records.ingest import ingest_one, set_status
+from services.common.deid import warm_analyzer
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -82,6 +83,7 @@ def main():
     from dotenv import load_dotenv
 
     load_dotenv(ROOT / ".env")
+    warm_analyzer()
     import signal
     import psycopg
     stop = Event()

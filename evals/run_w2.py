@@ -87,6 +87,9 @@ def report_md(meta, m, cases, preds) -> str:
 
 
 def main() -> None:
+    from services.common.deid import warm_analyzer
+
+    warm_analyzer()
     parser = argparse.ArgumentParser()
     parser.add_argument("--judge", action="store_true", help="Score W2 answers with an independent evidence judge")
     args = parser.parse_args()

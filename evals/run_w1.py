@@ -154,6 +154,9 @@ def report_md(meta, m, cases, preds) -> str:
 
 
 def main() -> None:
+    from services.common.deid import warm_analyzer
+
+    warm_analyzer()
     ap = argparse.ArgumentParser()
     ap.add_argument("--rules-only", action="store_true")
     a = ap.parse_args()
