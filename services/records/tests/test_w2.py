@@ -23,7 +23,7 @@ from services.agent.w2.graph import compile_w2  # noqa: E402
 from services.agent.w2.tools import InMemoryRecordsTools  # noqa: E402
 from services.records.embed import HashEmbedder  # noqa: E402
 from services.records.parse import chunk_document, read_pdf_pages  # noqa: E402
-from services.records.retrieve import InMemoryRetriever, coverage, query_terms  # noqa: E402
+from services.records.retrieve import InMemoryRetriever, coverage, page_hint, query_terms  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 P1, P2, P3, P4, P5 = (p[0] for p in PATIENTS)
@@ -104,6 +104,20 @@ def test_abbreviation_expansion():
     assert "alt" in query_terms("mera SGPT kitna aaya?")
 
 
+def test_hinglish_and_page_hints_normalize_during_retrieval(chunks):
+    retriever = InMemoryRetriever(chunks, HashEmbedder())
+    hb_hits = retriever.search(P1, "Mera Hb kitna nikla?", k=3)
+    page_hits = retriever.search(P1, "TSH report ke second page par kitna hai?", k=3)
+    sgpt_hits = retriever.search(P3, "SGPT ki value aur reference interval kya hai?", k=3)
+
+    assert hb_hits and hb_hits[0].doc_id == "DOC-W2-0001-CBC"
+    assert page_hint("TSH report ke second page par kitna hai?") == 2
+    assert page_hits and all(hit.page == 2 for hit in page_hits)
+    assert page_hits[0].doc_id == "DOC-W2-0001-VITD"
+    assert sgpt_hits and sgpt_hits[0].doc_id == "DOC-W2-0003-LFT" and sgpt_hits[0].kscore > 0
+    assert "nikla" not in query_terms("Mera Hb kitna nikla?")
+
+
 # ---------------------------------------------------------------- rules
 @pytest.mark.parametrize("q,self_,expect", [
     ("Show me the reports of patient PT-W2-0005", True, "other_records"),
@@ -124,6 +138,27 @@ def test_scope_rules(q, self_, expect):
 ])
 def test_doctor_rules(q, expect):
     assert rules.needs_doctor(q) is expect
+
+
+@pytest.mark.parametrize("question", [
+    "Mera HbA1c dekh ke diabetes confirm karo.",
+    "Does this prove I have cirrhosis?",
+    "confirm diabetes",
+    "do I have diabetes",
+    "kya mujhe diabetes hai",
+    "is it cancer",
+])
+def test_diagnosis_intent_goes_to_doctor(question):
+    assert rules.needs_doctor(question)
+
+
+@pytest.mark.parametrize("question", [
+    "Quote the HbA1c unit and reference cutoff, without a diagnosis.",
+    "No diagnosis please.",
+    "Show the report without a diagnosis.",
+])
+def test_negated_diagnosis_mentions_do_not_trigger_handoff(question):
+    assert not rules.needs_doctor(question)
 
 
 # ---------------------------------------------------------------- ask flow
@@ -179,6 +214,51 @@ def test_diagnosis_wording_falls_back(tools):
                                      "insufficient": False}})
     s = run(_ask(P1, P1, "Is my haemoglobin low?"), tools, llm)
     assert "anaemia" not in s["reply"] and not s["verified"]
+
+
+def test_saved_w2_pro_041_reply_falls_back(tools):
+    text = ("HbA1c aapka 8.1% hai, jo reference range (5.7% se neeche) se upar hai, isliye high hai. "
+            "Fasting blood glucose bhi 156 mg/dL (70-100 mg/dL) se upar hai, jo diabetes ke liye confirm karta hai.")
+    hit = {
+        "chunk_id": "w2-diagnosis-guard",
+        "doc_id": "DOC-W2-0002-HBA1C",
+        "patient_id": P2,
+        "page": 1,
+        "section": "HBA1C",
+        "text": "HBA1C\nHbA1c: 8.1 %\nReference: below 5.7 %\nFasting blood glucose: 156 mg/dL (70-100 mg/dL)",
+        "title": "Diabetes and Lipid Profile",
+        "report_date": "2026-10-20",
+    }
+    checked = n.verify({"subject_id": P2, "hits": [hit], "citations": [hit["chunk_id"]],
+                        "verified": True, "answer": text})
+    assert checked["verified"] is False
+    assert n.VERIFY_FALLBACK in checked["reply"] and "confirm karta hai" not in checked["reply"]
+
+
+def test_documented_diagnosis_can_be_quoted_with_attribution():
+    hit = {
+        "chunk_id": "documented-diagnosis",
+        "doc_id": "DOC-W2-TEST",
+        "patient_id": P2,
+        "page": 1,
+        "section": "ASSESSMENT",
+        "text": "ASSESSMENT\nAssessment: Type 2 diabetes mellitus confirmed.",
+        "title": "Assessment",
+        "report_date": "2026-10-20",
+    }
+    answer_text = "The report's Assessment states: Type 2 diabetes mellitus confirmed [E1]."
+    checked = n.verify({"subject_id": P2, "hits": [hit], "citations": [hit["chunk_id"]],
+                        "verified": True, "answer": answer_text})
+    assert checked["verified"] is True and "Type 2 diabetes mellitus confirmed" in checked["reply"]
+
+
+def test_hba1c_cutoff_request_without_diagnosis_is_answerable(tools):
+    question = "Quote the HbA1c unit and reference cutoff, without a diagnosis."
+    llm = ScriptedLLM({"w2.answer": {
+        "answer": "HbA1c is 8.1%; the unit is % and the reference cutoff is below 5.7% [E1].",
+        "citations": ["E1"], "insufficient": False}})
+    s = run(_ask(P2, P2, question), tools, llm)
+    assert s["route"] == "answer" and s["verified"] and "8.1%" in s["reply"]
 
 
 def test_caregiver_with_valid_consent_reads_the_wards_records(tools):

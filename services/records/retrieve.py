@@ -34,8 +34,20 @@ STOP = {"is", "my", "the", "a", "an", "of", "in", "what", "was", "are", "do", "d
         "kitna", "kitni", "kitne", "aaya", "aayi", "batao", "bataiye", "mummy", "papa", "maa", "mother", "mothers",
         "father", "fathers", "her", "his", "level", "levels", "value", "values", "result", "results", "show",
         "shows", "say", "says", "tell", "normal", "okay", "ok", "low", "high", "please", "can", "you", "latest",
-        "last"}
+        "last", "nikla", "nikli", "nikle", "second", "2nd", "page", "first", "1st", "third", "3rd",
+        "fourth", "4th", "fifth", "5th", "quote", "unit", "units", "reference", "cutoff", "without",
+        "diagnosis"}
 RRF_K = 60
+PAGE_HINT = re.compile(
+        r"\b(?:(first|1st|1|second|2nd|2|third|3rd|3|fourth|4th|4|fifth|5th|5)\s+page|"
+        r"page\s+(first|1st|1|second|2nd|2|third|3rd|3|fourth|4th|4|fifth|5th|5))\b",
+        re.I,
+)
+PAGE_NUMBERS = {
+        "first": 1, "1st": 1, "1": 1, "second": 2, "2nd": 2, "2": 2,
+        "third": 3, "3rd": 3, "3": 3, "fourth": 4, "4th": 4, "4": 4,
+        "fifth": 5, "5th": 5, "5": 5,
+}
 
 
 @dataclass
@@ -56,6 +68,14 @@ class Hit:
 def _tokens(question: str) -> list[str]:
     q = re.sub(r"['’]s\b", "", question.lower())   # "mother's" -> "mother"
     return re.findall(r"[a-z0-9][a-z0-9-]*", q)
+
+
+def page_hint(question: str) -> int | None:
+    """Return a requested page number, if the question names one."""
+    match = PAGE_HINT.search(question)
+    if not match:
+        return None
+    return PAGE_NUMBERS[match.group(1) or match.group(2).lower()]
 
 
 def term_groups(question: str) -> list[set[str]]:
@@ -111,17 +131,21 @@ class PostgresRetriever:
 
     def search(self, patient_id: str, question: str, k: int = 6, candidates: int = 20) -> list[Hit]:
         qv = to_pgvector(self.embedder.embed([question])[0])
+        requested_page = page_hint(question)
+        page_filter = " AND page = %s" if requested_page is not None else ""
         vec = self.conn.execute(
-            """SELECT chunk_id, 1 - (embedding <=> %s::vector) FROM doc_chunk
-                WHERE patient_id = %s AND embedding IS NOT NULL AND NOT ('injection' = ANY (flags))
+            f"""SELECT chunk_id, 1 - (embedding <=> %s::vector) FROM doc_chunk
+                WHERE patient_id = %s AND embedding IS NOT NULL AND NOT ('injection' = ANY (flags)){page_filter}
                 ORDER BY embedding <=> %s::vector LIMIT %s""",
-            (qv, patient_id, qv, candidates)).fetchall()
+            (qv, patient_id, *((requested_page,) if requested_page is not None else ()), qv, candidates)).fetchall()
         terms = query_terms(question)
         kw = self.conn.execute(
-            """SELECT chunk_id, ts_rank(tsv, to_tsquery('simple', %s)) FROM doc_chunk
-                WHERE patient_id = %s AND NOT ('injection' = ANY (flags)) AND tsv @@ to_tsquery('simple', %s)
+            f"""SELECT chunk_id, ts_rank(tsv, to_tsquery('simple', %s)) FROM doc_chunk
+                WHERE patient_id = %s AND NOT ('injection' = ANY (flags)){page_filter}
+                  AND tsv @@ to_tsquery('simple', %s)
                 ORDER BY 2 DESC LIMIT %s""",
-            (tsquery(terms), patient_id, tsquery(terms), candidates)).fetchall() if terms else []
+            (tsquery(terms), patient_id, *((requested_page,) if requested_page is not None else ()),
+             tsquery(terms), candidates)).fetchall() if terms else []
         fused = fuse([(c, float(s)) for c, s in vec], [(c, float(s)) for c, s in kw])
         top = sorted(fused, key=fused.get, reverse=True)[:k]
         if not top:
@@ -146,8 +170,10 @@ class InMemoryRetriever:
 
     def search(self, patient_id: str, question: str, k: int = 6, candidates: int = 20) -> list[Hit]:
         q = self.embedder.embed([question])[0]
+        requested_page = page_hint(question)
         own = [(c, v) for c, v in zip(self.chunks, self.vectors)
-               if c["patient_id"] == patient_id and "injection" not in c.get("flags", [])]
+               if c["patient_id"] == patient_id and "injection" not in c.get("flags", []) and
+               (requested_page is None or c["page"] == requested_page)]
         vec = sorted(((c["chunk_id"], sum(a * b for a, b in zip(q, v))) for c, v in own), key=lambda x: -x[1])[:candidates]
         terms = set(query_terms(question))
         kw = [(c["chunk_id"], float(len(terms & set(re.findall(r"[a-z0-9]+", c["text"].lower())))))

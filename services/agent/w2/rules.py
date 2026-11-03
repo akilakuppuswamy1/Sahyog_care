@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-RULES_VERSION = "w2-rules-v1"
+RULES_VERSION = "w2-rules-v2"
 
 OTHER_RECORDS = re.compile(
     r"\bPT-[A-Z0-9]+(-[A-Z0-9]+)*\b|"                                  # any explicit patient id
@@ -24,11 +24,27 @@ THIRD_PARTY = re.compile(
     re.I)
 NEEDS_DOCTOR = re.compile(
     r"\bdo\s+i\s+have\b|\bam\s+i\s+(diabetic|anaemic|anemic|sick|ill)\b|\bis\s+(it|this|that)\s+(cancer|serious|dangerous|"
-    r"normal\s+to\s+worry)\b|\bdiagnos|\bwhat\s+(disease|illness|condition)\b|\bcause[sd]?\b|\bwhy\s+is\s+my\b|"
+    r"normal\s+to\s+worry)\b|\bdoes\s+(this|that|it)\s+prove\b|\bwhat\s+(disease|illness|condition)\b|"
+    r"\bcause[sd]?\b|\bwhy\s+is\s+my\b|"
     r"\b(dose|dosage|how\s+much\s+(should|can)\s+i\s+take|how\s+many\s+(tablets|pills))\b|"
     r"\bshould\s+i\s+(take|stop|start|increase|decrease|reduce)\b|\b(medicine|medication|tablet|treatment|cure)\b|"
     r"\bkitni\s+(goli|dawai|dose)\b|\b(dawai|dawa|goli)\b|\bkya\s+mujhe\s+.{1,30}\s+hai\b|\bilaaj\b",
     re.I)
+DIAGNOSIS_WORD = re.compile(r"\bdiagnos\w*\b", re.I)
+NEGATED_DIAGNOSIS = re.compile(
+    r"\b(?:without|no|not|never|don't|dont|do\s+not)\s+(?:(?:want|need)\s+)?(?:a\s+|any\s+)?diagnos\w*\b",
+    re.I,
+)
+DIAGNOSIS_CONDITION = (
+    r"(?:[a-z]+(?:itis|osis|emia|aemia|oma|pathy)|diabetes(?:\s+mellitus)?|cancer|cirrhosis|"
+    r"asthma|arthritis|hypertension|(?:liver|kidney|heart)\s+disease)"
+)
+DIAGNOSIS_INTENT = re.compile(
+    rf"\b(?:confirm|confirms|confirmed|prove|proves|proved)\s+(?:that\s+)?(?:i\s+)?"
+    rf"(?:have\s+)?{DIAGNOSIS_CONDITION}\b|"
+    rf"\b{DIAGNOSIS_CONDITION}\s+(?:confirm|prove)\s+(?:karo|kijiye|kar\s+do|karde)\b",
+    re.I,
+)
 
 
 def scope_question(question: str, actor_is_subject: bool) -> str | None:
@@ -43,4 +59,6 @@ def scope_question(question: str, actor_is_subject: bool) -> str | None:
 
 
 def needs_doctor(question: str) -> bool:
-    return bool(NEEDS_DOCTOR.search(question))
+    active_question = NEGATED_DIAGNOSIS.sub(" ", question)
+    return bool(NEEDS_DOCTOR.search(question) or DIAGNOSIS_WORD.search(active_question) or
+                DIAGNOSIS_INTENT.search(question))

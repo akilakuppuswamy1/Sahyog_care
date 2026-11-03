@@ -19,7 +19,7 @@ from services.records.retrieve import coverage
 
 V_MIN = 0.45          # minimum best vector score to call the context "relevant" (tune on the eval set)
 K, K_WIDE = 6, 12
-PROMPT_VERSION = "w2-prompts-v2"   # v2: always state value + unit + range (eval w2-002, w2-006)
+PROMPT_VERSION = "w2-prompts-v3"   # v3: attribution required for excerpt-supported diagnosis wording
 
 REFUSE_OTHER = ("I can only answer questions about the records you are allowed to see. "
                 "If a family member wants you to see their reports, they can add you as a caregiver.")
@@ -37,6 +37,8 @@ Rules:
 - Always state each relevant value WITH its unit and the reference range printed in the excerpt, then say whether
   it is within, below or above that range. A bare "yes" or "no" is never enough.
 - Never diagnose, never name a likely disease or cause, never suggest a medicine, dose or treatment.
+- Do not infer a disease from lab values. Only quote a diagnosis when it is explicitly documented in an excerpt,
+  attribute it to that excerpt, and use its exact condition wording.
 - Use only numbers that appear in the excerpts.
 - Cite the excerpt label for every fact, like [E1].
 - If the excerpts do not answer the question, set "insufficient": true.
@@ -160,6 +162,38 @@ def answer(s: W2State, llm: JsonLLM) -> W2State:
 
 
 NUM = re.compile(r"\d+(?:[.,]\d+)?")
+CONDITION = re.compile(
+    r"\b(?:type\s+[12]\s+)?(?:diabetes(?:\s+mellitus)?|cirrhosis|cancer|anaemia|anemia|hypertension|"
+    r"fatty\s+liver|asthma|arthritis|infection|(?:kidney|liver|heart)\s+disease|"
+    r"[a-z]+(?:itis|osis|emia|aemia|oma|pathy)|disease|disorder|syndrome|condition)\b",
+    re.I,
+)
+DIAGNOSIS_LANGUAGE = re.compile(r"\b(?:confirm\w*|prov\w*|diagnos\w*)\b", re.I)
+CONDITION_ASSERTION = re.compile(
+    r"\b(?:you|your(?:\s+results|\s+report)?|patient|i)\b.{0,50}\b"
+    r"(?:have|has|are|is|suffering|diagnos\w*)\b|"
+    r"\b(?:confirmed|proven|diagnos\w*)\b.{0,50}\b(?:for|in)\s+(?:you|the\s+patient)\b",
+    re.I,
+)
+ATTRIBUTED_DIAGNOSIS = re.compile(
+    r"\b(?:according\s+to\s+)?(?:the\s+)?(?:report|excerpt|assessment|impression|record)\b"
+    r".{0,80}\b(?:says|states|records|documents|notes|lists|shows|confirms|reads|is)\b",
+    re.I,
+)
+DOSE = re.compile(
+    r"\b(?:take|start|increase|reduce)\s+\d+\s*(?:mg|ml|tablets?)\b|"
+    r"\b\d+(?:\.\d+)?\s*mg\b(?!\s*/\s*d?l\b)",
+    re.I,
+)
+
+
+def _supported_diagnosis(text: str, cited_text: str) -> bool:
+    if DOSE.search(text) or not ATTRIBUTED_DIAGNOSIS.search(text):
+        return False
+    conditions = [m.group(0) for m in CONDITION.finditer(text)]
+    source = re.sub(r"\s+", " ", cited_text).casefold()
+    return bool(conditions) and all(re.sub(r"\s+", " ", condition).casefold() in source
+                                    for condition in conditions)
 
 
 def verify(s: W2State) -> W2State:
@@ -174,7 +208,13 @@ def verify(s: W2State) -> W2State:
     cited_text = " ".join(f"{h['text']} {h.get('report_date') or ''} page {h['page']}" for h in cited)
     cited_text = cited_text.replace(",", "").replace("-", " ")
     numbers_ok = all(n.replace(",", "") in cited_text for n in NUM.findall(re.sub(r"\[E\d+\]", "", text)))
-    ok = bool(s.get("verified")) and bool(cited) and numbers_ok and not DIAGNOSIS.search(text)
+    supported_diagnosis = _supported_diagnosis(text, cited_text)
+    has_condition_claim = bool(CONDITION.search(text)) and (
+        bool(DIAGNOSIS_LANGUAGE.search(text)) or bool(CONDITION_ASSERTION.search(text))
+    )
+    diagnosis_blocked = ((bool(DIAGNOSIS.search(text)) or has_condition_claim) and
+                         not supported_diagnosis)
+    ok = bool(s.get("verified")) and bool(cited) and numbers_ok and not diagnosis_blocked
     if not ok and cited:
         # Fall back to the cited lines themselves: the patient's own record, verbatim, with no interpretation.
         # Every line of each cited chunk except its section header. (v1 showed only the LAST line, so an LDL

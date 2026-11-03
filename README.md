@@ -187,15 +187,16 @@ records requests in triage, numeric ranges, cross-patient requests and prompt in
 The original 30-item `evals/sets/judge_calibration.jsonl` is the prompt-development set.
 Judge prompt `w2-faithfulness-v2` is frozen for the held-out round. Calibration uses a
 held-out set because tuning and testing on the same items would overfit.
-Independently label `evals/sets/judge_calibration_holdout.jsonl` with integer `0` or `1`, without
-viewing its separate `.key.json` analysis file or judge predictions. The key contains agent
-expectations, not authoritative labels, and is never read by the judge. Freeze the prompt first:
+The 20 `judge-cal-r2-001..020` items in `evals/sets/judge_calibration_holdout.jsonl`
+were labelled by the pod (human) on 2026-11-03 before seeing judge output. Obsolete
+unlabelled drafts are gone; the category-only post-hoc analysis key now matches these
+item IDs and must never be supplied to the judge. Freeze the prompt first:
 tuning and calibrating on the same items would overfit. If held-out results inform further tuning,
 use a fresh held-out set next. Faithfulness is support for every claim, not completeness/helpfulness.
 Measurements answer "What is X?"; true excerpt-scoped absence and printed-range comparisons count.
 Ordinary rounding is allowed unless exactness or a changed boundary comparison makes it misleading.
 Score whether **every claim is supported by the supplied excerpts**, including units, values and
-diagnosis wording. Both sets include deliberately unsupported answers. Empty held-out labels are deliberate;
+diagnosis wording. Both sets include deliberately unsupported answers. Empty or invalid labels are refused;
 the calibration command refuses them before any model call. A constant single-class rating has
 undefined kappa and cannot certify a judge.
 
@@ -222,7 +223,7 @@ results, explicitly marking either original-set prompt version as unmeasured whe
 `--set` defaults to `original`. The command loads repo-root dotenv in `main()` without overriding
 existing environment variables. Legacy runs without set metadata are diagnostic only and cannot certify. `--set` also accepts
 an explicit JSONL path; only the canonical holdout path receives held-out provenance. Empty/invalid
-labels fail before judge construction. Held-out validation is pending labels and authorization;
+labels fail before judge construction. Held-out model validation is pending authorization;
 no new calibration result is claimed. Without qualifying calibration, reports show
 `judge not calibrated (kappa X)` or `not measured`. Content hits and deterministic verification remain
 separate proxies. No calibration or new evaluation result is claimed until those commands are run.

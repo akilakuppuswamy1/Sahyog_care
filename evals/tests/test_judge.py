@@ -106,26 +106,33 @@ def test_report_calibration_gate(tmp_path, kappa, certified):
     assert faithfulness_status({"metrics": {}}, []) == "not measured"
 
 
-def test_holdout_is_new_blind_and_has_separate_analysis_key():
+def test_holdout_is_exact_pod_labelled_round_two_set():
     original = [json.loads(x) for x in (ROOT / "evals/sets/judge_calibration.jsonl").read_text(encoding="utf-8").splitlines()]
     holdout = [json.loads(x) for x in (ROOT / "evals/sets/judge_calibration_holdout.jsonl").read_text(encoding="utf-8").splitlines()]
-    key = json.loads((ROOT / "evals/sets/judge_calibration_holdout.key.json").read_text(encoding="utf-8"))["items"]
     assert len(holdout) == len({x["id"] for x in holdout}) == 20
     assert not {x["id"] for x in original} & {x["id"] for x in holdout}
     assert not {(x["question"], x["answer"]) for x in original} & {(x["question"], x["answer"]) for x in holdout}
-    assert all(x["human_label"] == "" and "tags" not in x for x in holdout)
-    assert set(key) == {x["id"] for x in holdout}
-    assert {x["expected_label"] for x in key.values()} == {0, 1}
-    assert {"rounding", "range_paraphrase", "absence", "earlier_report", "injection_obeyed"} <= {x["expected_category"] for x in key.values()}
+    assert [x["id"] for x in holdout] == [f"judge-cal-r2-{i:03}" for i in range(1, 21)]
+    assert [x["human_label"] for x in holdout] == [1,0,1,1,0,0,1,0,0,1,0,1,0,1,0,1,0,0,0,1]
+    assert all(type(x["human_label"]) is int and "tags" not in x for x in holdout)
+    assert all(x["labelled_by"] == "pod (human), 2026-11-03, labelled before seeing judge output" for x in holdout)
+    key = json.loads((ROOT / "evals/sets/judge_calibration_holdout.key.json").read_text(encoding="utf-8"))
+    assert key["usage"] == "Post-hoc category analysis only. Never input to the judge."
+    assert set(key["items"]) == {x["id"] for x in holdout}
+    assert all(set(item) == {"expected_category"} and item["expected_category"] for item in key["items"].values())
 
 
 def test_holdout_empty_labels_fail_before_judge_construction(monkeypatch, tmp_path):
     import tools.calibrate_judge as cli
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    set_dir = tmp_path / "evals/sets"
+    set_dir.mkdir(parents=True)
+    (set_dir / "judge_calibration_holdout.jsonl").write_text(json.dumps({"human_label": ""}), encoding="utf-8")
     monkeypatch.setattr(cli, "FaithfulnessJudge", lambda *a: pytest.fail("Must not construct a model"))
     monkeypatch.setattr(cli, "answering_models", lambda: pytest.fail("Must not read model settings"))
     with pytest.raises(ValueError, match="labels"):
         cli.main(["--set", "holdout", "--runs-dir", str(tmp_path)])
-    assert not list(tmp_path.iterdir())
+    assert not list(tmp_path.glob("*.json"))
 
 
 @pytest.mark.parametrize("selection", ["holdout", "original", "custom"])

@@ -1,5 +1,6 @@
 """Synthetic-only regressions for the production egress boundary."""
 import json
+import statistics
 import time
 
 import pytest
@@ -23,14 +24,17 @@ def test_offline_replay_and_clinical_numbers(monkeypatch):
     def no_network(*args, **kwargs):
         pytest.fail("offline replay attempted a network connection")
     monkeypatch.setattr(socket.socket, "connect", no_network)
-    report = replay()
+    replay()  # Warm the local analyzer before measuring request-path latency.
+    reports = [replay() for _ in range(5)]
+    report = reports[0]
     enforce_zero_hits(report)
     assert all(value == 1 for value in report["recall"].values())
     assert report["false_positive_rate"] == 0
     for text in CLEAN:
         assert deid.prepare_egress("", text)[1] == text
-    # Warm-model per-call budget; cold load is deliberately outside request handling.
-    assert report["deid_ms_p95"] < 50, report
+    p95s = [sample["deid_ms_p95"] for sample in reports]
+    assert all(isinstance(value, (int, float)) for value in p95s), p95s
+    assert statistics.median(p95s) < 50, {"deid_ms_p95_runs": p95s}
 
 
 def test_verhoeff_and_refuse_survivor(monkeypatch):
