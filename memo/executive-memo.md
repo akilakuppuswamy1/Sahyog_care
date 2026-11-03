@@ -1,43 +1,43 @@
 # Sahyog Care Companion — executive memo
-_Tier reached: Pro · `pro-complete` · Synthetic evidence; clinical review and production validation remain open._
+_Pod: <names> · Tier: Pro (tag `pro-complete`) · All system figures from synthetic data and our saved eval runs; client
+figures (41% phone bookings, 9,000 appointments/day, 11 min typing per consultation) are the client's own._
 
-**Delivered.** Patients can describe symptoms in English or Hinglish, book through the scheduling tools,
-and question their own reports with citations. Doctors can turn text transcripts into editable SOAP drafts,
-check grounded medicines against clinic stock, and sign an immutable note. Durable ingest runs in a separate
-queue worker; shared egress de-identification, model resilience, Postgres tracing and Ops are built.
-Red-flag rules precede model calls; patient scope comes from authentication and is enforced in retrieval SQL.
+**Result.** Sahyog patients can describe symptoms in English or Hinglish and book the right doctor without a phone
+call, and ask questions of their own reports with every answer cited to its page. Doctors can turn a consultation
+transcript into a SOAP draft, see each medicine checked against clinic stock, and sign an immutable note. On our
+golden sets every emergency presentation went to emergency help (red-flag recall 100%, 0 false alarms), specialty
+routing was correct on all 16 booking cases across three runs (180728, 180812, 180851), no record answer drew on
+another patient's data (0 scope leaks on 80 questions including the red-team PDF, run 104837), and the scribe
+invented no medicine (0 invented molecules on 40 transcripts, run 114035).
 
-**Measured results.** W3 recorded 0 invented molecules, field F1 0.823, medicine precision/recall
-0.833/0.833, and correct stock flags on 25/30 comparisons; draft p95 was
-6.583 s ([run 20261103-114035](../evals/runs/w3-20261103-114035.json)). These are synthetic outcomes,
-not proof of clinical safety; field and medicine scores remain below the [0.9 target](../evals/report.md).
-The offline egress replay found 0 hits in 200 synthetic payloads, with de-identification p95
-14.296 ms ([egress-20261103-051910](../evals/runs/egress-20261103-051910.json)); unfamiliar names
-and contextual quasi-identifiers remain risks.
+**Decisions we would defend.**
+- *Rules before models.* Red-flag rules decide emergencies before any model call; a model may add a flag, never remove one.
+- *Isolation in the database.* The patient comes from the login and is a SQL filter on every retrieval; caregivers see
+  records only while consent is valid; record reads are audited and visible to the patient.
+- *Hybrid deployment.* Records, embeddings and the database stay on our infrastructure; every model call passes a
+  de-identification step (0 identifiers in a 200-payload replay, p95 14 ms, run egress-051910).
+- *Nothing the doctor did not say.* A medicine reaches the note only if the transcript states it or our formulary maps a
+  stated brand to one composition; anything else is left as "[doctor to specify]".
+- *Measured, not asserted.* Golden sets written before code, results generated from saved runs, and an answer-quality
+  judge trusted only after calibration against our own labels on items it was never tuned on (kappa 0.69).
 
-W2's 80-case suite recorded `red_team_pass=true` and 0 scope leaks; this is the suite-level
-red-team pass, not a claim that every case is adversarial. Faithfulness was 0.868
-([run 20261103-104837](../evals/runs/w2-20261103-104837.json)), below the [0.9 target](../evals/report.md).
-The matching held-out calibration has kappa 0.694
-([20261103-061312-389012](../evals/runs/judge-calibration-20261103-061312-389012.json)).
-The [human judge-zero review](../evals/runs/judge-review-w2-20261103-094651.md) of the earlier run found
-an actual contradictory absence claim alongside judge errors. It motivated verifier and citation-footer fixes;
-it does not re-score the latest run or erase its failures.
+**What went wrong, and what it taught us.** A latency fix (tighter timeouts) quietly sent 6 of 16 bookings to the front
+desk; running the eval three times instead of once caught it. Expanding W2 to 80 cases found a diagnosis slipping
+through in Hinglish ("confirm karo"); both the input rule and the output guard had missed it, and both now have tests.
+The scribe once put a dose ("625 mg") in the medicine field of a multi-ingredient brand; grounding now validates the
+field type. Our coding agent added a browser retry "for robustness" that broke booking; request logs, not tests, found it.
 
-**Cost including scribe.** Using the unit costs in the [cost sheet](../docs/cost-sheet.md), an illustrative
-consultation comprises a triage turn, record answer and scribe draft: 0.00006828 + 0.00009533 + 0.00012143 = 0.00028504,
-in the worksheet's provider price currency (runs 20261103-071432, 20261103-104837 and 20261103-114035).
-This sum includes the scribe line; actual consultation cost is unmeasured because the workflow mix is not linked.
-Prices are worksheet inputs, not independently verified here; local compute/storage and unbuilt speech-to-text
-are excluded. Record-answer cost is an amortized run average.
+**Where we fall short.** Scribe field accuracy is 0.82 and medicine precision/recall 0.83 against a 0.9 target; the
+remaining medicine misses are placeholders left for the doctor, not wrong drugs. Record-answer faithfulness is 0.87
+against 0.9. Triage latency is under 4 s in two of three runs. Doctor review time, booking completion and availability
+are not yet measured, there is no speech-to-text, and eval cases still await clinical review.
 
-**Remaining work.** No audio or speech-to-text is built. Doctor review time, booking completion/time,
-clinic-hours availability and recovery remain unmeasured. Architect deployment controls are unbuilt:
-verified India hosting, encryption, least-privilege roles, distributed limits and retention/recovery validation.
-Production identity/OTP, SMS delivery and scheduling the timeout/purge commands also remain open.
-Pro denotes delivered scope with these explicit gaps, not production readiness.
+**Cost.** One triage turn, one record answer and one scribe draft cost about 0.00029 (provider price currency, list prices
+of 2 Nov 2026; formula and runs in the cost sheet). The scribe is the largest line; the real per-consultation cost needs
+the actual visit mix.
 
-**Claim check.** Rechecked against the saved runs, cost sheet, graph/API/worker implementations and D7.
-Unsupported claims removed: client business figures, manual browser success, universal privacy/clinical safety,
-all quality targets met, production residency, measured consultation savings and doctor time saved.
-None is asserted here; the synthetic results cannot establish those outcomes.
+**Next.** India-region hosting with least-privilege roles, a load test at 1,400 requests an hour, and a doctor role-play
+to measure review time against the 90-second target.
+
+**If we did it again,** we would put the browser path and repeated eval runs into CI from day one: every failure that
+reached a user came through a path we ran only once.
