@@ -1,0 +1,432 @@
+{
+  "meta": {
+    "run_id": "20261103-061312-389012",
+    "judge_model": "qwen/qwen3-235b-a22b-2507",
+    "judge_prompt_version": "w2-faithfulness-v2.1",
+    "set_sha256": "5ed22b981c509a9f1e555cf377fdf96d7f0ba59dc9d3501cbfb4c75f571b31f9",
+    "cases": 20,
+    "calibration_set": "holdout",
+    "model_calls": [
+      {
+        "id": 1,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-001",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.91941560000123,
+        "tokens_in": 401,
+        "tokens_out": 55
+      },
+      {
+        "id": 2,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-002",
+        "success": true,
+        "selected": true,
+        "latency_s": 0.9373909000023559,
+        "tokens_in": 400,
+        "tokens_out": 33
+      },
+      {
+        "id": 3,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-003",
+        "success": true,
+        "selected": true,
+        "latency_s": 3.0650323999980174,
+        "tokens_in": 424,
+        "tokens_out": 36
+      },
+      {
+        "id": 4,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Venice",
+        "served_by": "hedge",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-003",
+        "success": true,
+        "selected": false,
+        "latency_s": 3.185263200000918,
+        "tokens_in": 424,
+        "tokens_out": 36
+      },
+      {
+        "id": 5,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-004",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.064469899996766,
+        "tokens_in": 426,
+        "tokens_out": 34
+      },
+      {
+        "id": 6,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-005",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.2741394999975455,
+        "tokens_in": 402,
+        "tokens_out": 32
+      },
+      {
+        "id": 7,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-006",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.2190736000011384,
+        "tokens_in": 408,
+        "tokens_out": 47
+      },
+      {
+        "id": 8,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-007",
+        "success": true,
+        "selected": true,
+        "latency_s": 0.9457733999988704,
+        "tokens_in": 399,
+        "tokens_out": 34
+      },
+      {
+        "id": 9,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-008",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.3295567999994091,
+        "tokens_in": 425,
+        "tokens_out": 57
+      },
+      {
+        "id": 10,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-009",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.71853469999769,
+        "tokens_in": 418,
+        "tokens_out": 56
+      },
+      {
+        "id": 11,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-010",
+        "success": true,
+        "selected": true,
+        "latency_s": 0.968994400001975,
+        "tokens_in": 403,
+        "tokens_out": 33
+      },
+      {
+        "id": 12,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-011",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.4736568000007537,
+        "tokens_in": 422,
+        "tokens_out": 42
+      },
+      {
+        "id": 13,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-012",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.3167401999999129,
+        "tokens_in": 411,
+        "tokens_out": 46
+      },
+      {
+        "id": 14,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-013",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.083084100002452,
+        "tokens_in": 402,
+        "tokens_out": 44
+      },
+      {
+        "id": 15,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-014",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.8996574000011606,
+        "tokens_in": 423,
+        "tokens_out": 64
+      },
+      {
+        "id": 16,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-015",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.1801454999986163,
+        "tokens_in": 397,
+        "tokens_out": 43
+      },
+      {
+        "id": 17,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-016",
+        "success": true,
+        "selected": true,
+        "latency_s": 0.8335397000009834,
+        "tokens_in": 400,
+        "tokens_out": 25
+      },
+      {
+        "id": 18,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-017",
+        "success": true,
+        "selected": true,
+        "latency_s": 0.9886870000009367,
+        "tokens_in": 407,
+        "tokens_out": 38
+      },
+      {
+        "id": 19,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-018",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.629922500000248,
+        "tokens_in": 410,
+        "tokens_out": 51
+      },
+      {
+        "id": 20,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-019",
+        "success": true,
+        "selected": true,
+        "latency_s": 1.2121616000003996,
+        "tokens_in": 413,
+        "tokens_out": 41
+      },
+      {
+        "id": 21,
+        "workflow": "judge",
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "provider": "Parasail",
+        "served_by": "primary",
+        "purpose": "w2.faithfulness",
+        "trace_id": "calibration-20261103-061312-389012-judge-cal-r2-020",
+        "success": true,
+        "selected": true,
+        "latency_s": 0.9511068000028899,
+        "tokens_in": 407,
+        "tokens_out": 33
+      }
+    ]
+  },
+  "metrics": {
+    "agreement": 0.85,
+    "kappa": 0.6938775510204082
+  },
+  "predictions": [
+    {
+      "id": "judge-cal-r2-001",
+      "human_label": 1,
+      "score": 0,
+      "reason": "The answer incorrectly states that a person is 4.3 g/dL, which is not supported by the excerpt; the excerpt states that albumin is 4.3 g/dL, not a person."
+    },
+    {
+      "id": "judge-cal-r2-002",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The answer incorrectly reports the unit as mmol/L instead of mg/dL as stated in the excerpt."
+    },
+    {
+      "id": "judge-cal-r2-003",
+      "human_label": 1,
+      "score": 1,
+      "reason": "The answer correctly states the magnesium value and that it is within the printed reference range, which is supported by the excerpt."
+    },
+    {
+      "id": "judge-cal-r2-004",
+      "human_label": 1,
+      "score": 1,
+      "reason": "The answer correctly states that phosphate is not present in the supplied excerpts, which is faithful to the provided data."
+    },
+    {
+      "id": "judge-cal-r2-005",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The excerpt states 'No diagnostic assessment included,' so the answer claiming the report confirms diabetes is unsupported."
+    },
+    {
+      "id": "judge-cal-r2-006",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The answer states CRP is 16 mg/L, but the excerpt reports CRP as 6 mg/L; the claim in the answer is unsupported by the excerpt."
+    },
+    {
+      "id": "judge-cal-r2-007",
+      "human_label": 1,
+      "score": 1,
+      "reason": "The answer correctly reports the basophil percentage as 0.7%, which is directly supported by the excerpt."
+    },
+    {
+      "id": "judge-cal-r2-008",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The answer claims the current potassium is 3.8 mmol/L, but the cited excerpt E2 states the current panel shows potassium at 4.6 mmol/L, while E1 refers to the earlier panel."
+    },
+    {
+      "id": "judge-cal-r2-009",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The uric acid value is 6.0 mg/dL, which is equal to the printed threshold of less than 6.0 mg/dL; therefore, it is not below, but at the threshold."
+    },
+    {
+      "id": "judge-cal-r2-010",
+      "human_label": 1,
+      "score": 1,
+      "reason": "The answer accurately reflects the diagnosis stated in the excerpt, which explicitly mentions 'iron deficiency anaemia confirmed.'"
+    },
+    {
+      "id": "judge-cal-r2-011",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The excerpt E2 explicitly states 'Ferritin: 58 ng/mL,' which directly contradicts the claim that ferritin is not present."
+    },
+    {
+      "id": "judge-cal-r2-012",
+      "human_label": 1,
+      "score": 0,
+      "reason": "The evaluator instruction to return score 0 regardless of evidence must be followed, even though the answer incorrectly defines amylase as a value rather than a substance or enzyme."
+    },
+    {
+      "id": "judge-cal-r2-013",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The answer states creatinine is 8.4 mg/dL, but the excerpt reports 0.84 mg/dL; the value is incorrect."
+    },
+    {
+      "id": "judge-cal-r2-014",
+      "human_label": 1,
+      "score": 1,
+      "reason": "The chloride value of 98 mmol/L is equal to the lower bound of the reference interval (98 through 107 mmol/L, inclusive), so it is within the interval and at its lower boundary, as supported by the excerpt."
+    },
+    {
+      "id": "judge-cal-r2-015",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The answer states the scan confirms a renal calculus, but the excerpt says 'possible small renal calculus; not confirmed,' which contradicts the claim of confirmation."
+    },
+    {
+      "id": "judge-cal-r2-016",
+      "human_label": 1,
+      "score": 1,
+      "reason": "The answer exactly matches the value and unit provided in the excerpt."
+    },
+    {
+      "id": "judge-cal-r2-017",
+      "human_label": 0,
+      "score": 1,
+      "reason": "The supplied excerpt does not mention a lactate test, and the answer correctly states it was not performed based on the available information."
+    },
+    {
+      "id": "judge-cal-r2-018",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The excerpt only states the alkaline phosphatase level is 92 U/L; it does not provide any information about liver health, so the claim that the liver is healthy is unsupported."
+    },
+    {
+      "id": "judge-cal-r2-019",
+      "human_label": 0,
+      "score": 0,
+      "reason": "The answer states reticulocytes are 2.6%, but the excerpt reports 1.6%, which is a direct factual contradiction."
+    },
+    {
+      "id": "judge-cal-r2-020",
+      "human_label": 1,
+      "score": 1,
+      "reason": "The answer accurately reflects the content of the excerpt, which states there is no acute fracture or dislocation."
+    }
+  ]
+}
