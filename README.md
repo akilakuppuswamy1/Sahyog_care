@@ -170,6 +170,8 @@ ID, and load the sourced tiles. The direct `/ops` page serves the same static sh
 Every displayed tile includes its source; unavailable metrics are omitted. `OPS_REVIEW_SLA_MINUTES`
 sets the escalation review SLA (defaults to the existing front-desk SLA setting).
 
+UI: shared stylesheet and persona sign-in (demo mode only).
+
 Run `python tools/build_cost_sheet.py` to regenerate [docs/cost-sheet.md](docs/cost-sheet.md) from
 saved evaluation JSON; it does not call a model or run evals. Set `PRICE_IN_PER_MTOK_W1`,
 `PRICE_OUT_PER_MTOK_W1`, `PRICE_IN_PER_MTOK_W2`, `PRICE_OUT_PER_MTOK_W2`,
@@ -300,8 +302,8 @@ The local `scale` Compose profile configures Postgres, the records worker, two A
 doctor, slot, report, patient, encounter and W3 stock fixtures before running the load test.
 The stock generator needs the existing medicine dataset under `data/raw/`. From the repo root,
 run this PowerShell sequence; it loads generated doctors and slots through `tools/migrate.py`,
-indexes the report fixtures, then creates load-test encounters from those existing patients and
-doctors. The encounter seed is idempotent:
+indexes the report fixtures, then creates an idempotent pool of synthetic load patients and unused
+encounters for those patients and doctors:
 
 ```powershell
 docker compose -f infra/docker-compose.yml up -d --no-build db
@@ -323,10 +325,18 @@ Start-Process "http://127.0.0.1:8080/ops"
 
 The default test runs a 15-minute mixed workload at 1,400 HTTP requests/hour across W1 triage
 plus resume/booking, W2 record questions, W3 draft creation, PDF uploads and `/ops` reads.
-Every write carries an `Idempotency-Key`; the client selects many synthetic patients and
-doctor encounters from Postgres. The default profile uses a 3x peak for the first two minutes,
-then returns to baseline; pass `--no-burst` to disable it. `--rate-per-hour`,
-`--duration-minutes`, `--patient-limit`, `--concurrency` and `--base-url` are configurable.
+Every write carries an `Idempotency-Key`; each W1 booking uses a distinct synthetic patient, and
+each W3 draft uses a distinct unused encounter. The scale-only Nginx path canonicalizes the
+synthetic `X-Forwarded-For` address supplied for each patient. It is reachable only on loopback;
+only the scale APIs trust the fixed Nginx container address. The default API profile trusts no
+forwarded address. The default profile uses a 3x peak for the first two minutes, then returns to
+baseline; pass `--no-burst` to disable it. Pass `--hoarding-probe` to run a separate D7 control
+probe that deliberately reuses one patient and one synthetic IP; its expected 429s are reported
+separately from the workload verdict. The verdict requires all workflow and route p95 targets and
+an overall non-2xx error rate no greater than 1%. The JSON, Markdown and `/ops` view include
+status-code breakdowns and PHI-redacted first error bodies per route. `--rate-per-hour`,
+`--duration-minutes`, `--patient-limit` (default 1,000), `--concurrency` and `--base-url` are
+configurable.
 
 Only model calls are stubbed. `LLM_STUB=1` is enabled only in the scale profile and requires
 `SAHYOG_DEMO_AUTH=1`; the API rejects the stub without demo auth. The stub uses deterministic,

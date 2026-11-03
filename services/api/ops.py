@@ -177,7 +177,11 @@ def build_ops_summary(deps, runs_dir: Path | None = None) -> dict:
             "requests": summary.get("requests"),
             "requests_per_second": summary.get("requests_per_second"),
             "error_rate": summary.get("error_rate"),
+            "error_count": summary.get("error_count"),
+            "error_rate_limit": summary.get("error_rate_limit"),
+            "error_rate_pass": summary.get("error_rate_pass"),
             "rate_429": summary.get("rate_429"),
+            "status_codes": summary.get("status_codes", {}),
             "replicas": {"configured": meta.get("configured_replicas"),
                          "observed": len(observed), "ids": observed},
         }, source)
@@ -201,11 +205,22 @@ def build_ops_summary(deps, runs_dir: Path | None = None) -> dict:
                           "pass": values.get("pass"),
                           "count": values.get("count", 0),
                           "rps": values.get("rps"),
+                          "status_codes": values.get("status_codes", {}),
+                          "first_error_body": values.get("first_error_body"),
                       }, source)
         _add_tile(tiles, "load-errors", "latest load errors", {
             "error_rate": summary.get("error_rate"),
+            "error_count": summary.get("error_count"),
+            "error_rate_limit": summary.get("error_rate_limit"),
+            "error_rate_pass": summary.get("error_rate_pass"),
             "rate_429": summary.get("rate_429"),
             "degraded_rate": summary.get("degraded_rate"),
+            "status_codes": summary.get("status_codes", {}),
+            "first_error_body_by_route": {
+                endpoint: values.get("first_error_body")
+                for endpoint, values in load_run.get("routes", {}).items()
+                if values.get("first_error_body")
+            },
         }, source)
         _add_tile(tiles, "load-replicas", "latest load replicas", {
             "configured": meta.get("configured_replicas"),

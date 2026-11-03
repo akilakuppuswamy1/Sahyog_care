@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import os
 import random
@@ -35,6 +36,14 @@ W2_QUESTIONS = (
     "What is my LDL cholesterol result?",
     "What is my creatinine result?",
 )
+ERROR_RATE_LIMIT = 0.01
+SAFE_ERROR_DETAILS = {
+    "Rate limit exceeded",
+    "this encounter already has an active doctor review",
+    "Only the treating doctor may access this encounter",
+    "Encounter not found",
+    "Encounter clinic does not match the treating doctor's clinic",
+}
 
 
 def _percentile(samples: list[float], percentile: float) -> float | None:
@@ -51,11 +60,16 @@ def _route_stats(samples: list[dict], duration_seconds: float | None = None) -> 
     if not samples:
         return {"count": 0, "p50_ms": None, "p95_ms": None, "p99_ms": None,
                 "rps": 0.0 if duration_seconds else None, "errors": 0,
-                "error_rate": 0.0, "rate_limited": 0, "degraded_rate": 0.0}
+                "error_rate": 0.0, "rate_limited": 0, "degraded_rate": 0.0,
+                "status_codes": {}, "first_error_body": None}
     failures = sum(not 200 <= row["status"] < 300 for row in samples)
     limited = sum(row["status"] == 429 for row in samples)
     degraded = sum(row["degraded"] for row in samples)
     latencies = [row["latency_ms"] for row in samples]
+    status_codes = {}
+    for row in samples:
+        code = str(row["status"])
+        status_codes[code] = status_codes.get(code, 0) + 1
     return {
         "count": len(samples),
         "p50_ms": _percentile(latencies, 0.50),
@@ -66,13 +80,48 @@ def _route_stats(samples: list[dict], duration_seconds: float | None = None) -> 
         "error_rate": round(failures / len(samples), 4),
         "rate_limited": limited,
         "degraded_rate": round(degraded / len(samples), 4),
+        "status_codes": dict(sorted(status_codes.items())),
+        "first_error_body": next(
+            (row.get("error_body") for row in samples
+             if not 200 <= row["status"] < 300),
+            None,
+        ),
     }
+
+
+def _safe_error_body(response: httpx.Response | None) -> str:
+    if response is None:
+        return "No HTTP response body"
+    try:
+        payload = response.json()
+    except ValueError:
+        return "[non-JSON response body redacted]"
+    if not isinstance(payload, dict) or not isinstance(payload.get("detail"), str):
+        return "[structured response body redacted]"
+    detail = payload["detail"]
+    if detail.startswith("no stock CSV is configured for clinic "):
+        detail = "no stock CSV is configured for clinic [redacted]"
+    elif detail not in SAFE_ERROR_DETAILS:
+        detail = "[non-generic error detail redacted]"
+    return json.dumps({"detail": detail}, ensure_ascii=False, sort_keys=True)
 
 
 def _targeted_stats(samples: list[dict], duration_seconds: float, target_ms: int) -> dict:
     stats = _route_stats(samples, duration_seconds)
     p95 = stats["p95_ms"]
     return {**stats, "target_ms": target_ms, "pass": p95 is not None and p95 < target_ms}
+
+
+def _load_verdict(workflows: dict, routes: dict, error_rate: float) -> str:
+    return "PASS" if (
+        error_rate <= ERROR_RATE_LIMIT
+        and all(value["pass"] for value in workflows.values())
+        and all(value["pass"] for value in routes.values())
+    ) else "FAIL"
+
+
+def _synthetic_client_ip(index: int) -> str:
+    return str(ipaddress.ip_address(int(ipaddress.ip_address("198.18.0.1")) + index))
 
 
 def _model_mode(tiles: list[dict], allow_real_model: bool) -> tuple[str, dict | None]:
@@ -136,7 +185,10 @@ def _load_subjects(database_url: str, patient_limit: int) -> dict:
         encounters = [row for row in conn.execute(
             """SELECT e.encounter_id, e.doctor_id FROM encounter e
                  JOIN doctor d ON d.doctor_id = e.doctor_id
-                WHERE d.synthetic ORDER BY e.encounter_id LIMIT %s""",
+                WHERE d.synthetic
+                  AND NOT EXISTS (
+                      SELECT 1 FROM note_draft nd WHERE nd.encounter_id = e.encounter_id)
+                ORDER BY e.encounter_id LIMIT %s""",
             (patient_limit,),
         ).fetchall()]
     if not patients:
@@ -156,9 +208,26 @@ async def run_load(args: argparse.Namespace) -> dict:
         raise RuntimeError("Set DATABASE_URL or pass --database-url; the load client does not read .env")
     subjects = _load_subjects(args.database_url, args.patient_limit)
     routes: dict[str, list[dict]] = {}
+    probe_routes: dict[str, list[dict]] = {}
     workflows: dict[str, list[dict]] = {name: [] for name in P95_TARGET_MS}
     replicas: set[str] = set()
     selector = random.Random(args.seed)
+    booking_patients = list(subjects["patients"])
+    selector.shuffle(booking_patients)
+    if args.hoarding_probe:
+        if len(booking_patients) < 2:
+            raise RuntimeError("--hoarding-probe requires at least two synthetic patients")
+        probe_patient = booking_patients.pop()
+    else:
+        probe_patient = None
+    booking_patient_index = 0
+    draft_encounters = list(subjects["encounters"])
+    selector.shuffle(draft_encounters)
+    draft_encounter_index = 0
+    patient_ips = {
+        patient: _synthetic_client_ip(index)
+        for index, patient in enumerate(subjects["patients"])
+    }
     actions = tuple(TRAFFIC_MIX)
     weights = tuple(TRAFFIC_MIX.values())
     semaphore = asyncio.Semaphore(args.concurrency)
@@ -175,8 +244,11 @@ async def run_load(args: argparse.Namespace) -> dict:
             check.json().get("tiles", []), args.allow_real_model,
         )
 
-        async def send(route: str, method: str, path: str, **kwargs):
+        async def send(route: str, method: str, path: str, *, probe: bool = False,
+                       client_patient: str | None = None, **kwargs):
             nonlocal request_count
+            if client_patient is not None:
+                kwargs.setdefault("headers", {})["X-Forwarded-For"] = patient_ips[client_patient]
             started = time.perf_counter()
             try:
                 response = await client.request(method, path, **kwargs)
@@ -190,10 +262,32 @@ async def run_load(args: argparse.Namespace) -> dict:
                 status = 0
                 degraded = False
             row = {"status": status, "latency_ms": (time.perf_counter() - started) * 1000,
-                   "degraded": degraded}
-            routes.setdefault(route, []).append(row)
+                   "degraded": degraded,
+                   "error_body": _safe_error_body(response) if not 200 <= status < 300 else None}
+            (probe_routes if probe else routes).setdefault(route, []).append(row)
             request_count += 1
             return response
+
+        def next_booking_patient() -> str:
+            nonlocal booking_patient_index
+            if booking_patient_index >= len(booking_patients):
+                raise RuntimeError(
+                    "Synthetic patient pool exhausted; run `python tools/seed_load_test.py` "
+                    "or raise --patient-limit."
+                )
+            patient = booking_patients[booking_patient_index]
+            booking_patient_index += 1
+            return patient
+
+        def next_draft_encounter() -> tuple[str, str]:
+            nonlocal draft_encounter_index
+            if draft_encounter_index >= len(draft_encounters):
+                raise RuntimeError(
+                    "Unused synthetic encounters exhausted; run `python tools/seed_load_test.py`."
+                )
+            encounter = draft_encounters[draft_encounter_index]
+            draft_encounter_index += 1
+            return encounter
 
         def finish_workflow(name: str, started: float, status: int, degraded: bool) -> None:
             workflows[name].append({
@@ -205,11 +299,13 @@ async def run_load(args: argparse.Namespace) -> dict:
         async def triage_action():
             async with semaphore:
                 started = time.perf_counter()
-                patient = selector.choice(subjects["patients"])
+                patient = next_booking_patient()
                 token = f"Bearer demo-{patient}"
                 response = await send(
                     "POST /w1/triage", "POST", "/w1/triage",
-                    headers={"Authorization": token, "Idempotency-Key": uuid4().hex},
+                    client_patient=patient,
+                    headers={"Authorization": token, "Idempotency-Key": uuid4().hex,
+                             "X-Forwarded-For": patient_ips[patient]},
                     json={"text": "Mild knee ache after walking for several weeks.", "age": 42},
                 )
                 status = response.status_code if response else 0
@@ -222,7 +318,9 @@ async def run_load(args: argparse.Namespace) -> dict:
                             resumed = await send(
                                 "POST /w1/{thread_id}/resume", "POST",
                                 f"/w1/{payload['thread_id']}/resume",
-                                headers={"Authorization": token, "Idempotency-Key": uuid4().hex},
+                                client_patient=patient,
+                                headers={"Authorization": token, "Idempotency-Key": uuid4().hex,
+                                         "X-Forwarded-For": patient_ips[patient]},
                                 json={"value": options[0]["slot_id"]},
                             )
                             status = resumed.status_code if resumed else 0
@@ -239,6 +337,7 @@ async def run_load(args: argparse.Namespace) -> dict:
                 patient = selector.choice(subjects["record_patients"])
                 response = await send(
                     "POST /w2/ask", "POST", "/w2/ask",
+                    client_patient=patient,
                     headers={"Authorization": f"Bearer demo-{patient}"},
                     json={"question": selector.choice(W2_QUESTIONS)},
                 )
@@ -251,7 +350,7 @@ async def run_load(args: argparse.Namespace) -> dict:
         async def draft_action():
             async with semaphore:
                 started = time.perf_counter()
-                encounter_id, doctor_id = selector.choice(subjects["encounters"])
+                encounter_id, doctor_id = next_draft_encounter()
                 response = await send(
                     "POST /scribe/api/drafts", "POST", "/scribe/api/drafts",
                     headers={"Authorization": f"Bearer demo-doc-{doctor_id}",
@@ -270,6 +369,7 @@ async def run_load(args: argparse.Namespace) -> dict:
                 patient = selector.choice(subjects["patients"])
                 await send(
                     "POST /records/upload", "POST", "/records/upload",
+                    client_patient=patient,
                     headers={"Authorization": f"Bearer demo-{patient}",
                              "Idempotency-Key": uuid4().hex},
                     files={"file": ("synthetic-load-report.pdf", _synthetic_pdf(), "application/pdf")},
@@ -308,22 +408,62 @@ async def run_load(args: argparse.Namespace) -> dict:
             next_start += interval_at_base_rate / multiplier
         if tasks:
             await asyncio.gather(*tasks)
+        workload_duration = time.monotonic() - started
+        probe_result = {"enabled": False, "status": "NOT RUN", "expected_429s": 0, "routes": {}}
+        if args.hoarding_probe:
+            assert probe_patient is not None
+            for _ in range(21):
+                triage = await send(
+                    "POST /w1/triage", "POST", "/w1/triage", probe=True,
+                    client_patient=probe_patient,
+                    headers={"Authorization": f"******",
+                             "Idempotency-Key": uuid4().hex},
+                    json={"text": "Mild knee ache after walking for several weeks.", "age": 42},
+                )
+                if not triage or not triage.is_success:
+                    continue
+                payload = triage.json()
+                options = (payload.get("interrupt") or {}).get("options") or []
+                if payload.get("status") == "needs_input" and options:
+                    await send(
+                        "POST /w1/{thread_id}/resume", "POST",
+                        f"/w1/{payload['thread_id']}/resume", probe=True,
+                        client_patient=probe_patient,
+                        headers={"Authorization": f"******",
+                                 "Idempotency-Key": uuid4().hex},
+                        json={"value": "load-hoarding-probe-invalid-choice"},
+                    )
+            probe_results = {
+                name: _route_stats(samples)
+                for name, samples in sorted(probe_routes.items())
+            }
+            expected_429s = probe_results.get(
+                "POST /w1/{thread_id}/resume", {},
+            ).get("rate_limited", 0)
+            probe_result = {
+                "enabled": True,
+                "status": "PASS" if expected_429s > 0 else "FAIL",
+                "expected_429s": expected_429s,
+                "routes": probe_results,
+            }
         finished_at = datetime.now(timezone.utc)
 
     actual_duration = time.monotonic() - started
     route_results = {
         name: _targeted_stats(
-            samples, actual_duration, ROUTE_P95_TARGET_MS[name],
+            samples, workload_duration, ROUTE_P95_TARGET_MS[name],
         ) for name, samples in sorted(routes.items())
     }
     workflow_results = {}
     for name, target in P95_TARGET_MS.items():
-        workflow_results[name] = _targeted_stats(workflows[name], actual_duration, target)
+        workflow_results[name] = _targeted_stats(workflows[name], workload_duration, target)
     all_requests = [sample for samples in routes.values() for sample in samples]
     total = len(all_requests)
     errors = sum(not 200 <= row["status"] < 300 for row in all_requests)
     rate_limited = sum(row["status"] == 429 for row in all_requests)
     degraded = sum(row["degraded"] for row in all_requests)
+    error_rate = errors / total if total else 0.0
+    status_codes = _route_stats(all_requests)["status_codes"]
     return {
         "meta": {
             "run_id": started_at.strftime("%Y%m%d-%H%M%S"),
@@ -344,6 +484,7 @@ async def run_load(args: argparse.Namespace) -> dict:
                 "seed": args.seed,
                 "burst": args.burst,
                 "allow_real_model": args.allow_real_model,
+                "hoarding_probe": args.hoarding_probe,
             },
             "burst": {"enabled": args.burst, "peak_multiplier": 3 if args.burst else 1,
                       "peak_seconds": burst_seconds},
@@ -363,15 +504,17 @@ async def run_load(args: argparse.Namespace) -> dict:
         "workflows": workflow_results,
         "summary": {
             "requests": total,
-            "error_rate": round(errors / total, 4) if total else 0.0,
+            "error_rate": round(error_rate, 4),
+            "error_count": errors,
+            "error_rate_limit": ERROR_RATE_LIMIT,
+            "error_rate_pass": error_rate <= ERROR_RATE_LIMIT,
             "rate_429": round(rate_limited / total, 4) if total else 0.0,
             "degraded_rate": round(degraded / total, 4) if total else 0.0,
-            "requests_per_second": round(total / actual_duration, 4) if total else 0.0,
+            "requests_per_second": round(total / workload_duration, 4) if total else 0.0,
+            "status_codes": status_codes,
         },
-        "status": "PASS" if (
-            all(value["pass"] for value in workflow_results.values())
-            and all(value["pass"] for value in route_results.values())
-        ) else "FAIL",
+        "hoarding_probe": probe_result,
+        "status": _load_verdict(workflow_results, route_results, error_rate),
     }
 
 
@@ -396,8 +539,12 @@ def _markdown(run: dict) -> str:
         f"- Requested rate: {meta['requested_rate_per_hour']} HTTP requests/hour",
         f"- Actual requests: {summary['requests']}",
         f"- Actual RPS: {summary['requests_per_second']}",
-        f"- Errors (all non-2xx, including 429): {summary['error_rate']:.2%}",
+        f"- Errors (all non-2xx, including 429): {summary['error_rate']:.2%} "
+        f"({summary['error_count']}/{summary['requests']})",
+        f"- Error-rate target: ≤ {summary['error_rate_limit']:.2%} "
+        f"({'PASS' if summary['error_rate_pass'] else 'FAIL'})",
         f"- 429 rate: {summary['rate_429']:.2%}",
+        f"- Status-code breakdown: `{json.dumps(summary['status_codes'], sort_keys=True)}`",
         f"- Degraded rate: {summary['degraded_rate']:.2%}",
         f"- Replicas observed: {len(meta['observed_replicas'])}/{meta['configured_replicas']} "
         f"({', '.join(meta['observed_replicas']) or 'none'})",
@@ -426,6 +573,36 @@ def _markdown(run: dict) -> str:
             f"{values['error_rate']:.2%} | {values['rate_limited']} | "
             f"{values['degraded_rate']:.2%} |"
         )
+    lines += [
+        "", "## Per-route status codes and first error bodies", "",
+        "| Endpoint | Status-code breakdown | First error body (PHI-redacted) |",
+        "|---|---|---|",
+    ]
+    for route, values in sorted(run["routes"].items()):
+        body = (values["first_error_body"] or "—").replace("|", "\\|").replace("`", "\\`")
+        lines.append(
+            f"| {route} | `{json.dumps(values['status_codes'], sort_keys=True)}` | "
+            f"`{body}` |"
+        )
+    probe = run["hoarding_probe"]
+    lines += ["", "## D7 hoarding probe", ""]
+    if not probe["enabled"]:
+        lines.append("Not run; pass `--hoarding-probe` to opt in.")
+    else:
+        lines.append(
+            f"Result: **{probe['status']}**; expected booking-control 429s: "
+            f"{probe['expected_429s']}. Probe traffic is isolated from workload verdict metrics."
+        )
+        lines += [
+            "", "| Endpoint | Status-code breakdown | First error body (PHI-redacted) |",
+            "|---|---|---|",
+        ]
+        for route, values in sorted(probe["routes"].items()):
+            body = (values["first_error_body"] or "—").replace("|", "\\|").replace("`", "\\`")
+            lines.append(
+                f"| {route} | `{json.dumps(values['status_codes'], sort_keys=True)}` | "
+                f"`{body}` |"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -435,7 +612,7 @@ def _argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--rate-per-hour", type=int, default=1400)
     parser.add_argument("--duration-minutes", type=float, default=15)
-    parser.add_argument("--patient-limit", type=int, default=100)
+    parser.add_argument("--patient-limit", type=int, default=1000)
     parser.add_argument("--replicas", type=int, default=2)
     parser.add_argument("--concurrency", type=int, default=24)
     parser.add_argument("--timeout-seconds", type=float, default=60)
@@ -444,6 +621,8 @@ def _argument_parser() -> argparse.ArgumentParser:
                         help="Disable the default 3x peak for the first two minutes")
     parser.add_argument("--allow-real-model", action="store_true",
                         help="Explicitly permit live model calls; default requires LLM_STUB=1")
+    parser.add_argument("--hoarding-probe", action="store_true",
+                        help="Run an isolated D7 probe against one patient/IP booking bucket")
     parser.set_defaults(burst=True)
     return parser
 

@@ -99,6 +99,26 @@ def test_other_patient_from_other_address_unaffected(client, monkeypatch):
             assert second.get("/records/access-log", headers=headers("PT-B")).status_code == 200
 
 
+def test_forged_forwarded_for_does_not_change_direct_client_bucket(monkeypatch):
+    monkeypatch.setenv("SAHYOG_DEMO_AUTH", "1")
+    monkeypatch.setenv("RL_READ_PER_MIN", "1")
+    app = create_app(build_test_deps)
+    with TestClient(app, client=("192.0.2.10", 1000)) as first:
+        assert first.get(
+            "/records/access-log",
+            headers={**headers(), "X-Forwarded-For": "198.18.0.1"},
+        ).status_code == 200
+        assert first.get(
+            "/records/access-log",
+            headers={**headers(), "X-Forwarded-For": "198.18.0.2"},
+        ).status_code == 429
+        with TestClient(app, client=("192.0.2.11", 1000)) as second:
+            assert second.get(
+                "/records/access-log",
+                headers={**headers("PT-B"), "X-Forwarded-For": "198.18.0.1"},
+            ).status_code == 200
+
+
 def test_patient_and_ip_buckets(monkeypatch):
     monkeypatch.setenv("RL_READ_PER_MIN", "2")
     monkeypatch.setenv("RL_BOOK_PER_HOUR", "1")

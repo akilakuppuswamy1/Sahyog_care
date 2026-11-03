@@ -4,40 +4,37 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sahyog operations</title>
-  <style>
-    body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 1000px; padding: 0 1rem; color: #172b3a; }
-    h1 { color: #145b55; }
-    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
-    article { border: 1px solid #cbd8d5; border-radius: 8px; padding: 1rem; }
-    article h2 { font-size: 1rem; margin: 0 0 .75rem; }
-    .value { font-size: 1.25rem; overflow-wrap: anywhere; }
-    .value.good { color: #176b3a; }
-    .value.bad { color: #b42318; }
-    .detail { color: #52656e; font-size: .9rem; margin-top: .35rem; }
-    .source { color: #52656e; font-size: .85rem; margin-top: .75rem; }
-    form { margin: 2rem 0 1rem; display: flex; flex-wrap: wrap; gap: .5rem; }
-    input { min-width: 20rem; flex: 1; padding: .5rem; }
-    button { padding: .5rem .8rem; }
-    .trace { overflow: auto; background: #f3f6f5; padding: 1rem; }
-    .trace ul { list-style: none; margin: 0; padding-left: 1.25rem; }
-    .trace > ul { padding-left: 0; }
-    .trace li { margin: .25rem 0; }
-  </style>
+  <link rel="stylesheet" href="/static/sahyog.css">
 </head>
 <body>
+<header class="site-header"><div class="inner"><div class="brand">Sahyog Care Companion <span class="demo-badge">Demo · synthetic data</span></div>
+<nav class="site-nav" aria-label="Main"><a href="/">Patient</a><a href="/frontdesk">Front desk</a><a href="/scribe">Doctor</a><a href="/ops" aria-current="page">Ops</a></nav></div></header>
+<div class="page">
   <h1>Operations</h1>
-  <form id="ops-auth-form">
-    <label for="ops-id">Signed in as</label>
-    <input id="ops-id" required autocomplete="username">
+  <div class="persona-bar"><span class="label">Sign in as</span><div class="persona-list" id="persona-list"></div>
+  <details><summary>Other identity</summary>
+  <form id="ops-auth-form" class="other-row">
+    <label for="ops-id">Signed in as
+    <input id="ops-id" required autocomplete="username"></label>
     <button>Load sourced metrics</button>
-  </form>
+  </form></details></div>
+  <p id="tiles-note" class="muted" role="status"></p>
   <section class="tiles" id="tiles" aria-live="polite"></section>
-  <form id="trace-form">
-    <label for="trace-id">Trace ID</label>
-    <input id="trace-id" required autocomplete="off">
+  <section class="card" id="load-table-card" style="margin-top:16px" hidden>
+    <h2>Latest load test</h2>
+    <p class="muted" id="load-summary"></p>
+    <div class="table-wrap"><table id="load-table"><thead><tr><th>Endpoint</th><th>p95</th><th>Target</th><th>Requests</th><th>RPS</th><th>Result</th><th>Status codes</th><th>First error body (redacted)</th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section class="card" style="margin-top:16px">
+  <h2>Trace lookup</h2>
+  <form id="trace-form" class="other-row">
+    <label for="trace-id">Trace ID
+    <input id="trace-id" required autocomplete="off"></label>
     <button>View trace</button>
   </form>
-  <div id="trace" class="trace" aria-live="polite"></div>
+  <div id="trace" class="trace" aria-live="polite" hidden></div>
+  </section>
+</div>
   <script>
     const tiles = document.getElementById("tiles");
     const traceOutput = document.getElementById("trace");
@@ -77,6 +74,7 @@
           + `${numberText(value.requests_per_second, 4)} RPS`;
         formatted.detail = `Run ${value.run_id} · errors ${percentText(value.error_rate)} · `
           + `429 ${percentText(value.rate_429)} · `
+          + `status ${JSON.stringify(value.status_codes || {})} · `
           + `${value.replicas.observed}/${value.replicas.configured} replicas `
           + `(${(value.replicas.ids || []).join(", ")})`;
         formatted.status = value.status === "PASS" ? "good" : "bad";
@@ -92,8 +90,11 @@
         formatted.status = value.pass ? "good" : "bad";
       } else if (tile.id === "load-errors") {
         formatted.text = `errors ${percentText(value.error_rate)} · 429 ${percentText(value.rate_429)}`;
-        formatted.detail = `degraded ${percentText(value.degraded_rate)}`;
-        formatted.status = Number(value.error_rate) === 0 ? "good" : "bad";
+        formatted.detail = `degraded ${percentText(value.degraded_rate)} · `
+          + `status ${JSON.stringify(value.status_codes || {})} · `
+          + `error target ≤ ${percentText(value.error_rate_limit)}`;
+        formatted.status = value.error_rate_pass === false || Number(value.error_rate) > 0
+          ? "bad" : "good";
       } else if (tile.id === "load-replicas") {
         formatted.text = `${value.observed}/${value.configured} replicas observed`;
         formatted.detail = (value.ids || []).join(", ");
@@ -159,14 +160,63 @@
       parent.append(list);
     }
 
+    function friendly(status) {
+      if (status === 401) return "Please choose a sign-in persona above.";
+      if (status === 403) return "This identity cannot view operations data. Pick the ops persona.";
+      return "Operations data is not available right now. Please try again.";
+    }
+
+    function chip(text, kind) {
+      const span = document.createElement("span");
+      span.className = `chip ${kind}`;
+      span.textContent = text;
+      return span;
+    }
+
+    function loadRow(tile) {
+      const value = tile.value;
+      const row = document.createElement("tr");
+      for (const text of [tile.label, `${numberText(value.p95_ms)} ms`, `< ${numberText(value.target_ms)} ms`,
+        String(value.count), numberText(value.rps, 4)]) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        row.append(td);
+      }
+      const result = document.createElement("td");
+      result.append(chip(value.pass ? "Pass" : "Fail", value.pass ? "good" : "bad"));
+      row.append(result);
+      for (const text of [
+        JSON.stringify(value.status_codes || {}),
+        value.first_error_body || "—",
+      ]) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        row.append(td);
+      }
+      return row;
+    }
+
     async function loadSummary() {
       tiles.replaceChildren();
+      document.getElementById("tiles-note").textContent = "Loading metrics…";
+      const loadBody = document.querySelector("#load-table tbody");
+      loadBody.replaceChildren();
+      document.getElementById("load-table-card").hidden = true;
       const response = await fetch("/ops/api/summary", { headers: headers() });
-      if (!response.ok) throw new Error(`Operations data unavailable (${response.status})`);
+      if (!response.ok) throw new Error(friendly(response.status));
       const data = await response.json();
+      document.getElementById("tiles-note").textContent = "";
+      let shown = 0;
       for (const tile of data.tiles) {
         if (!tile.source) continue;
+        if (tile.id.startsWith("load-endpoint-")) {
+          loadBody.append(loadRow(tile));
+          document.getElementById("load-table-card").hidden = false;
+          continue;
+        }
+        shown += 1;
         const card = document.createElement("article");
+        card.className = "tile";
         const title = document.createElement("h2");
         title.textContent = tile.label;
         const value = document.createElement("div");
@@ -180,32 +230,73 @@
         const source = document.createElement("div");
         source.className = "source";
         source.textContent = `Source: ${tile.source}`;
-        card.append(title, value);
+        const statusChip = formatted.status === "good" ? chip("On target", "good")
+          : formatted.status === "bad" ? chip("Needs attention", "bad")
+          : tile.id === "degraded-rate" ? chip("Degraded share", "degraded") : chip("Info", "neutral");
+        card.append(title, statusChip, value);
         if (formatted.detail) card.append(detail);
         card.append(source);
         tiles.append(card);
+        if (tile.id === "latest-load-test") {
+          document.getElementById("load-summary").textContent = `${formatted.text}. ${formatted.detail}`;
+          document.getElementById("load-table-card").hidden = false;
+        }
       }
+      if (!shown) document.getElementById("tiles-note").textContent = "No sourced metrics yet. Run the evals or a load test to populate this page.";
+    }
+
+    const personas = [["Ops operator", "operator1"], ["Compliance reviewer", "compliance1"]];
+    function markPersona() {
+      for (const b of document.querySelectorAll("#persona-list button")) {
+        b.setAttribute("aria-pressed", String(b.dataset.id === opsInput.value.trim()));
+      }
+    }
+    for (const [label, id] of personas) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "secondary";
+      b.textContent = label;
+      b.dataset.id = id;
+      b.setAttribute("aria-pressed", "false");
+      b.onclick = () => { opsInput.value = id; document.getElementById("ops-auth-form").requestSubmit(); };
+      document.getElementById("persona-list").append(b);
     }
 
     document.getElementById("ops-auth-form").addEventListener("submit", async event => {
       event.preventDefault();
       sessionStorage.setItem(tokenKey, `${tokenPrefix}${opsInput.value.trim()}`);
+      markPersona();
       try { await loadSummary(); }
-      catch (error) { tiles.textContent = error.message; }
+      catch (error) {
+        tiles.replaceChildren();
+        document.getElementById("tiles-note").textContent = error instanceof TypeError
+          ? "We could not reach the server. Please try again in a moment." : error.message;
+      }
     });
 
     document.getElementById("trace-form").addEventListener("submit", async event => {
       event.preventDefault();
       const id = document.getElementById("trace-id").value.trim();
-      const response = await fetch(`/ops/api/traces/${encodeURIComponent(id)}`, { headers: headers() });
+      traceOutput.hidden = false;
       traceOutput.replaceChildren();
-      if (!response.ok) {
-        traceOutput.textContent = `Trace unavailable (${response.status})`;
-        return;
+      try {
+        const response = await fetch(`/ops/api/traces/${encodeURIComponent(id)}`, { headers: headers() });
+        if (!response.ok) {
+          traceOutput.textContent = response.status === 404
+            ? "No trace found with that ID. Check it and try again."
+            : friendly(response.status);
+          return;
+        }
+        const tree = await response.json();
+        appendTraceNodes(traceOutput, tree.spans);
+      } catch (error) {
+        traceOutput.textContent = "We could not reach the server. Please try again in a moment.";
       }
-      const tree = await response.json();
-      appendTraceNodes(traceOutput, tree.spans);
     });
+
+    markPersona();
+    if (savedToken) document.getElementById("ops-auth-form").requestSubmit();
+    else document.getElementById("tiles-note").textContent = "Choose a sign-in persona above to load the sourced metrics.";
   </script>
 </body>
 </html>

@@ -395,3 +395,17 @@ proposed:
 accepted: the thread as the client-thread record (no other thread existed); every D2 question closed by a working assumption; licences, after I checked each Kaggle page myself (3 Nov 2026); Claude's suggested crosswalk notes, after I read the 41 rows; two D6 cells rescored (on-premise cost Weak, public-cloud audit Weak).
 rejected: an agent's CR-001 text claiming the client had issued and answered the request — it is self-set and labelled so; a second Q3 assumption number (A18) created by a parallel session — kept A20 as the single row.
 why: the record must not claim client input we never received. Reading the 50 notes by eye found what the automated scrub missed: no names (the source already uses placeholders), but exact dates in 7 notes and city names in 2 (Tyler, Texas; Seattle). Date and location redaction is now a pending fix with a test.
+### PR #pending-3 — UI polish pass: shared stylesheet and persona sign-in — 2026-11-03
+agent: Copilot SDK in VS Code (current session); original UI changes by Claude Code (Sonnet 5.5).
+proposed:
+- `services/api/static/sahyog.css` shared by the patient, front desk, doctor and ops pages (header, nav, palette, cards, chips) plus one `/static/sahyog.css` route in `services/api/main.py`.
+- One-click demo personas that fill the same bearer identity each page already used (PT-W2-0001, PT-DEMO-0001, caregiver-PT-W2-0001-for-PT-W2-0002, staff FD01, doctor DR-0001, ops operator1/compliance1); free-text identity kept under "Other identity"; patient choice remembered in sessionStorage.
+- Ops tiles in a responsive grid with status chips and a "Latest load test" table; friendly one-line errors and empty states.
+- Synthetic per-patient client IP forwarding limited to the loopback-only scale profile, distinct W1 patients, one unused encounter per W3 draft, and optional isolated D7 hoarding probe.
+- Per-route status breakdowns and PHI-redacted first error bodies in JSON, Markdown and `/ops`; verdict requires p95 targets and error rate ≤1%.
+- Documented the carrier-grade NAT booking-limit risk in ADR-007 without changing production rate-limit controls.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes: existing element ids, form fields, fetch calls and the strings `test_ops_page_formats_load_run_and_endpoint_p95` looks for were kept. Not verifiable without a browser: visual layout at 1280x800 and 390px, and the "Cited: <doc> p.<n>" chip, which is parsed from the W2 reply text because the API returns no structured citations. Doctor ID DR-0001 is an unverified placeholder; the API accepts any ID. What the agent got wrong: the saved load artifact omitted status codes and bodies, so it could not identify the exact 18 draft failures; code inspection found random encounter selection could reuse an encounter with an active draft. Initial assumption that the 429s were only patient-bucket failures was also incorrect: `RateLimiter.check` gates on both patient and IP, and the shared load-generator IP can exhaust the latter. The direct-forged-XFF regression and focused route-report tests cover the correction; the full pytest run is recorded after execution.
+- Verification: focused tests **31 passed**; the one required full `pytest -q` run reached 100% with exit code 0 (**480 tests collected/passed**; repository `addopts = -q` suppresses a summary line). `pytest --collect-only -q` confirmed the count. No load test or image build was run.

@@ -64,6 +64,13 @@ returning to baseline; `--no-burst` disables the peak. It records per-endpoint
 and workflow p95 target status, RPS, error/429/degraded rates and observed replica
 IDs in paired JSON/Markdown files.
 The evaluation report generator and `/ops` read the latest saved load result.
+In the local scale profile, the load generator sends a synthetic client IP per
+patient through loopback-only Nginx. Only that profile's API replicas trust the
+fixed Nginx container IP; the default API profile trusts no forwarded addresses.
+The optional `--hoarding-probe` reuses one patient and one synthetic IP and reports
+its expected booking-limit 429s separately. A load run passes only when all p95
+targets pass and the non-2xx error rate is at most 1%; route status codes and
+PHI-redacted first error bodies are included in the saved report and `/ops`.
 
 The cross-replica Postgres test starts W1 on one app instance, resumes and books
 on a second instance, then retries the same action and asserts one appointment.
@@ -86,6 +93,11 @@ the target p95s pass; configuration and code do not constitute a measured result
   suitability. Load-test reports state the stub mode and saved-run provenance.
 - Demo authentication, local compose credentials, single-node Postgres, shared
   local upload storage and unencrypted volumes remain non-production controls.
+- Open risk: Indian mobile networks commonly use carrier-grade NAT, so many
+  legitimate patients may share one source IP and exhaust the API's per-IP booking
+  bucket. Revisit the limiter design if production logs show booking 429s from
+  distinct patients sharing an IP; this finding does not change the current
+  production controls.
 
 ## References
 

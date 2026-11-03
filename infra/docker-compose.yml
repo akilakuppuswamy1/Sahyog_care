@@ -65,6 +65,7 @@ services:
     environment:
       DATABASE_URL: postgresql://sahyog:sahyog_local_only@db:5432/sahyog
       SAHYOG_DEMO_AUTH: "1"
+      FORWARDED_ALLOW_IPS: ""
       W3_STOCK_DIR: /app/data/synthetic/out/w3/stock
     ports:
       - "${API_PORT:-8000}:8000"
@@ -91,12 +92,17 @@ services:
       LLM_STUB_LATENCY_MS: "${LLM_STUB_LATENCY_MS:-}"
       SCALE_REPLICA_ID: api1
       W3_STOCK_DIR: /app/data/synthetic/out/w3/stock
+      FORWARDED_ALLOW_IPS: 172.30.240.10
     volumes:
       - hfcache:/root/.cache/huggingface
       - ../data/synthetic/out/w3/stock:/app/data/synthetic/out/w3/stock:ro
       - uploads:/app/data/uploads
     ports:
-      - "${API1_PORT:-8001}:8000"
+      - "127.0.0.1:${API1_PORT:-8001}:8000"
+    networks:
+      default: {}
+      scale_backend:
+        ipv4_address: 172.30.240.11
   api2:
     image: sahyog-api:local
     profiles: ["scale"]
@@ -116,12 +122,17 @@ services:
       LLM_STUB_LATENCY_MS: "${LLM_STUB_LATENCY_MS:-}"
       SCALE_REPLICA_ID: api2
       W3_STOCK_DIR: /app/data/synthetic/out/w3/stock
+      FORWARDED_ALLOW_IPS: 172.30.240.10
     volumes:
       - hfcache:/root/.cache/huggingface
       - ../data/synthetic/out/w3/stock:/app/data/synthetic/out/w3/stock:ro
       - uploads:/app/data/uploads
     ports:
-      - "${API2_PORT:-8002}:8000"
+      - "127.0.0.1:${API2_PORT:-8002}:8000"
+    networks:
+      default: {}
+      scale_backend:
+        ipv4_address: 172.30.240.12
   nginx:
     image: nginx:1.27-alpine
     profiles: ["scale"]
@@ -129,9 +140,18 @@ services:
       - api1
       - api2
     ports:
-      - "${SCALE_PORT:-8080}:8080"
+      - "127.0.0.1:${SCALE_PORT:-8080}:8080"
+    networks:
+      default: {}
+      scale_backend:
+        ipv4_address: 172.30.240.10
     volumes:
       - ./nginx-scale.conf:/etc/nginx/conf.d/default.conf:ro
+networks:
+  scale_backend:
+    ipam:
+      config:
+        - subnet: 172.30.240.0/24
 volumes:
   pgdata:
   hfcache:
