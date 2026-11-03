@@ -11,6 +11,8 @@ from urllib.parse import unquote, urlparse
 from services.records.embed import BgeM3Embedder
 from services.records.ingest import ingest_one, set_status
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def claim(conn):
     with conn.transaction():
@@ -77,6 +79,9 @@ def run_once(conn, embedder):
 
 
 def main():
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
     import signal
     import psycopg
     stop = Event()

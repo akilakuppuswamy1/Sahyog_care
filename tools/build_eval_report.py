@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from evals.judge import faithfulness_status
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -11,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def build_report(runs_dir: Path) -> str:
     runs = [(p, json.loads(p.read_text(encoding="utf-8"))) for p in sorted(runs_dir.glob("*.json"))]
     latest = {}
+    calibrations = [r for p, r in runs if p.name.startswith("judge-calibration-")]
     for p, run in sorted(runs, key=lambda pair: (pair[1].get("meta", {}).get("run_id", pair[0].stem), pair[0].name)):
         workflow = p.name.split("-")[0]
         if workflow in ("w1", "w2", "w3") and run.get("meta", {}).get("mode") != "rules":
@@ -35,6 +42,9 @@ def build_report(runs_dir: Path) -> str:
                 ("field_f1_macro", "medicine_precision", "medicine_recall", "invented_molecules",
                  "class_only_handled", "stock_flag_correct"))
         values = {key: availability(m) if key == "availability" else m.get(key, "not measured") for key in keys}
+        if workflow == "w2":
+            keys = (*keys, "faithfulness")
+            values["faithfulness"] = faithfulness_status(r, calibrations)
         lines.append(f"| {workflow.upper()} | {r['meta']['run_id']} | {r['meta'].get('model', 'not recorded')} | "
                      f"{m.get('latency_p95_s', 'not measured')} | {m.get('fallback_rate', 'not measured')} | " +
                      "; ".join(f"{k}={values[k]}" for k in keys) + " |")
@@ -73,7 +83,12 @@ def build_report(runs_dir: Path) -> str:
         measured("W3 doctor review time p95 < 90 s", "w3", "review_time_p95_s", lambda x: x < 90)
     measured("Red-flag recall 100%", "w1", "red_flag_recall", lambda x: x == 1)
     measured("Specialty accuracy >= 85%", "w1", "specialty_accuracy", lambda x: x >= .85)
-    gap("Answer faithfulness >= 0.9, calibrated judge", "Latest W2 headline proxies: content_hit and verified_rate", "Pro calibrated judge on W2 hardening day (unscheduled); proxies do not measure faithfulness")
+    w2 = latest.get("w2")
+    status = faithfulness_status(w2[1], calibrations) if w2 else "not measured"
+    certified = status not in ("not measured",) and not status.startswith("judge not calibrated")
+    lines.append(f"| Answer faithfulness >= 0.9, calibrated judge | {status} | "
+                 f"{'yes' if certified and w2[1]['metrics']['judge_score'] >= .9 else 'NO'} | "
+                 "Independent evidence judge; latest matching calibration required | Synthetic answers only |")
     measured("Scope leaks 0 on red-team set", "w2", "scope_leaks", lambda x: x == 0)
     gap("Bookings completed without a call >= 70% of synthetic sessions", "services/agent/tests/test_w1_graph.py::test_routine_case_pauses_for_the_pick_then_books_on_resume", "Triage runs stop before booking; Core demo/day-8 end-to-end session measurement pending")
     gap("Time to book median < 3 min", "Same booking test; no session timing run", "Core demo/day-8 timed synthetic sessions pending")

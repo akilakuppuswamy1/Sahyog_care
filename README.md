@@ -14,7 +14,7 @@ to the page it came from.
 - **Measured, not asserted** — golden evaluation sets written before the code; results in `evals/report.md`, generated
   from saved runs.
 
-**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet; W3 scribe graph/API/doctor console, grounding, stock adapters, signed-note persistence, 40-case eval set, and a schedulable timeout command. W3 timeout-job scheduling is not wired. Other gaps: Presidio egress replay, async ingest queue, 80-case evals with a calibrated judge, Architect tier.
+**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet; W3 scribe graph/API/doctor console, grounding, stock adapters, signed-note persistence, 40-case eval set, and a schedulable timeout command; 80-case W1/W2 sets and an independent W2 judge with calibration gating. W3 timeout-job scheduling is not wired. Judge calibration is pending pod labels and a measured kappa >= 0.6. Other gaps: Presidio egress replay, async ingest queue, Architect tier.
 
 ## Known gaps
 
@@ -174,10 +174,41 @@ python data/synthetic/generate_reports.py --bulk-patients 50     # 10 fixture + 
 python -m services.records.ingest --load-patients                # patients + caregiver consents
 python -m services.records.ingest                                # parse, chunk, embed (local bge-m3), index
 pytest                                                           # includes the red-team retrieval test on pgvector
-python -m evals.run_w2                                           # 30 W2 cases through OpenRouter -> evals/runs/w2-*.md
+python -m evals.run_w2                                           # 80 W2 cases through OpenRouter -> evals/runs/w2-*.md
 python -m services.agent.w2.cli --as PT-W2-0001                  # ask Priya's records
 python -m services.agent.w2.cli --as PT-W2-0001 --for PT-W2-0002 # Priya as caregiver for her mother
 ```
+## W2 faithfulness judge and pod calibration (Pro)
+
+W1 and W2 each contain 80 synthetic draft cases. Existing cases are preserved; additions carry
+`agent draft — clinical review pending`. The sets include Hinglish, caregivers, negation traps,
+records requests in triage, numeric ranges, cross-patient requests and prompt injections.
+
+The pod must fill every `human_label` in `evals/sets/judge_calibration.jsonl` with integer `0` or `1`.
+Score whether **every claim is supported by the supplied excerpts**, including units, values and
+diagnosis wording. The 30 items include deliberately unsupported answers. Empty labels are deliberate;
+the calibration command refuses them before any model call. A constant single-class rating has
+undefined kappa and cannot certify a judge.
+
+When explicitly authorized to make model calls, configure the process environment with the API key,
+`OPENROUTER_MODEL_W2` (or `OPENROUTER_MODEL`) and `OPENROUTER_MODEL_JUDGE`. The judge must differ
+from both the primary and fallback answering models. `OPENROUTER_FALLBACK_MODEL_JUDGE`, if set,
+must equal the judge model so calibration remains applicable. These commands use the same scrubbed,
+traced JSON egress adapter as the answering graph:
+
+```powershell
+python -m tools.calibrate_judge             # calls judge; saves agreement, Cohen's kappa, run id and set hash
+python -m evals.run_w2 --judge              # calls graph and judge; adds binary scores and one-line reasons
+python tools/build_eval_report.py          # saved JSON only; no model calls
+```
+
+W2 judging covers `answer` and `answer_degraded` routes using only their cited chunks; refusals are
+excluded. Saved JSON records raw `judge_score`, case count and judge identity separately from answer
+model usage. Reports show faithfulness only when the **latest** calibration has kappa >= 0.6 and
+matches the judge model and prompt version; they include its calibration run id. Otherwise they show
+`judge not calibrated (kappa X)` or `not measured`. Content hits and deterministic verification remain
+separate proxies. No calibration or new evaluation result is claimed until those commands are run.
+
 ## W3 Clinical scribe (Pro)
 ```powershell
 python data/synthetic/generate_stock.py
