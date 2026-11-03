@@ -8,6 +8,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -38,19 +40,31 @@ def calibrate(items, judge, run_id):
             "predictions": predictions}
 
 
-def main():
+def resolve_set(value):
+    path = {"original": ROOT / "evals/sets/judge_calibration.jsonl",
+            "holdout": ROOT / "evals/sets/judge_calibration_holdout.jsonl"}.get(str(value), Path(value))
+    if path.suffix != ".jsonl":
+        raise ValueError("Calibration input must be JSONL, never an analysis key")
+    return path
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--set", type=Path, default=ROOT / "evals/sets/judge_calibration.jsonl")
+    parser.add_argument("--set", default="original")
     parser.add_argument("--runs-dir", type=Path, default=ROOT / "evals/runs")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    args.set = resolve_set(args.set)
     items = [json.loads(line) for line in args.set.read_text(encoding="utf-8").splitlines() if line.strip()]
     labels = [item.get("human_label") for item in items]
     agreement_and_kappa(labels, labels)
+    load_dotenv(ROOT / ".env", override=False)
     judge = FaithfulnessJudge(answering_models())
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     result = calibrate(items, judge, run_id)
     result["meta"]["set_sha256"] = hashlib.sha256(args.set.read_bytes()).hexdigest()
     result["meta"]["cases"] = len(items)
+    result["meta"]["calibration_set"] = next((name for name in ("original", "holdout")
+        if args.set.resolve() == resolve_set(name).resolve()), "custom")
     result["meta"]["model_calls"] = judge.llm.usage.call_records
     args.runs_dir.mkdir(parents=True, exist_ok=True)
     path = args.runs_dir / f"judge-calibration-{run_id}.json"

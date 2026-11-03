@@ -184,9 +184,18 @@ W1 and W2 each contain 80 synthetic draft cases. Existing cases are preserved; a
 `agent draft — clinical review pending`. The sets include Hinglish, caregivers, negation traps,
 records requests in triage, numeric ranges, cross-patient requests and prompt injections.
 
-The pod must fill every `human_label` in `evals/sets/judge_calibration.jsonl` with integer `0` or `1`.
+The original 30-item `evals/sets/judge_calibration.jsonl` is the prompt-development set.
+Judge prompt `w2-faithfulness-v2` is frozen for the held-out round. Calibration uses a
+held-out set because tuning and testing on the same items would overfit.
+Independently label `evals/sets/judge_calibration_holdout.jsonl` with integer `0` or `1`, without
+viewing its separate `.key.json` analysis file or judge predictions. The key contains agent
+expectations, not authoritative labels, and is never read by the judge. Freeze the prompt first:
+tuning and calibrating on the same items would overfit. If held-out results inform further tuning,
+use a fresh held-out set next. Faithfulness is support for every claim, not completeness/helpfulness.
+Measurements answer "What is X?"; true excerpt-scoped absence and printed-range comparisons count.
+Ordinary rounding is allowed unless exactness or a changed boundary comparison makes it misleading.
 Score whether **every claim is supported by the supplied excerpts**, including units, values and
-diagnosis wording. The 30 items include deliberately unsupported answers. Empty labels are deliberate;
+diagnosis wording. Both sets include deliberately unsupported answers. Empty held-out labels are deliberate;
 the calibration command refuses them before any model call. A constant single-class rating has
 undefined kappa and cannot certify a judge.
 
@@ -197,15 +206,24 @@ must equal the judge model so calibration remains applicable. These commands use
 traced JSON egress adapter as the answering graph:
 
 ```powershell
-python -m tools.calibrate_judge             # calls judge; saves agreement, Cohen's kappa, run id and set hash
+python -m tools.calibrate_judge --set holdout  # calls judge AFTER independent labelling/authorization
+python -m tools.calibrate_judge --set original # optional development diagnostic; cannot certify
 python -m evals.run_w2 --judge              # calls graph and judge; adds binary scores and one-line reasons
 python tools/build_eval_report.py          # saved JSON only; no model calls
 ```
 
 W2 judging covers `answer` and `answer_degraded` routes using only their cited chunks; refusals are
 excluded. Saved JSON records raw `judge_score`, case count and judge identity separately from answer
-model usage. Reports show faithfulness only when the **latest** calibration has kappa >= 0.6 and
-matches the judge model and prompt version; they include its calibration run id. Otherwise they show
+model usage. Reports show faithfulness only when the **latest held-out calibration for the current
+frozen prompt version** has kappa >= 0.6 and matches the W2 run's judge model and prompt version;
+they include its calibration run id and prompt version. Matching obsolete prompt versions cannot certify.
+The saved-run report also lists the original 30-item kappa and prompt version alongside held-out
+results, explicitly marking either original-set prompt version as unmeasured when absent.
+`--set` defaults to `original`. The command loads repo-root dotenv in `main()` without overriding
+existing environment variables. Legacy runs without set metadata are diagnostic only and cannot certify. `--set` also accepts
+an explicit JSONL path; only the canonical holdout path receives held-out provenance. Empty/invalid
+labels fail before judge construction. Held-out validation is pending labels and authorization;
+no new calibration result is claimed. Without qualifying calibration, reports show
 `judge not calibrated (kappa X)` or `not measured`. Content hits and deterministic verification remain
 separate proxies. No calibration or new evaluation result is claimed until those commands are run.
 

@@ -9,7 +9,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from evals.judge import faithfulness_status
+from evals.judge import JUDGE_PROMPT_VERSION, faithfulness_status
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,6 +48,21 @@ def build_report(runs_dir: Path) -> str:
         lines.append(f"| {workflow.upper()} | {r['meta']['run_id']} | {r['meta'].get('model', 'not recorded')} | "
                      f"{m.get('latency_p95_s', 'not measured')} | {m.get('fallback_rate', 'not measured')} | " +
                      "; ".join(f"{k}={values[k]}" for k in keys) + " |")
+    lines += ["", "## Judge calibration provenance", "",
+              f"Only the latest held-out run for current prompt `{JUDGE_PROMPT_VERSION}` with kappa >= 0.6 and matching judge model authorizes faithfulness.", "",
+              "| Set | Run | Cases | Kappa | Judge prompt version |", "|---|---|---:|---:|---|"]
+    for c in sorted(calibrations, key=lambda c: c.get("meta", {}).get("run_id", "")):
+        cm = c.get("meta", {})
+        kind = cm.get("calibration_set", "original" if cm.get("cases") == 30 else "unknown")
+        lines.append(f"| {kind} | {cm.get('run_id', 'not recorded')} | {cm.get('cases', 'not recorded')} | "
+                     f"{c.get('metrics', {}).get('kappa', 'not measured')} | {cm.get('judge_prompt_version', 'not recorded')} |")
+    if not any(c.get("meta", {}).get("calibration_set") == "holdout" for c in calibrations):
+        lines.append("| holdout | not measured | 20 | not measured | not measured |")
+    for version in ("w2-faithfulness-v1", JUDGE_PROMPT_VERSION):
+        if not any(c.get("meta", {}).get("judge_prompt_version") == version
+                   and c.get("meta", {}).get("calibration_set", "original" if c.get("meta", {}).get("cases") == 30 else "unknown") == "original"
+                   for c in calibrations):
+            lines.append(f"| original | not measured | 30 | not measured | {version} |")
     lines += ["", "## Page 16 targets", "", "| Target | Measured (run id) | Met | Evidence | Gap / measurement tier and day |", "|---|---|---|---|---|"]
 
     def measured(label, workflow, key, predicate, subkey=None):
