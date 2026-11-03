@@ -1,5 +1,5 @@
 # Sahyog Care Companion — executive memo
-_Pod: <names> · Tier: Pro (tag `pro-complete`) · All system figures from synthetic data and our saved eval runs; client
+_Pod: Akila Kuppuswamy · Tier: Pro (tag `pro-complete`) · All system figures from synthetic data and our saved eval runs; client
 figures (41% phone bookings, 9,000 appointments/day, 11 min typing per consultation) are the client's own._
 
 **Result.** Sahyog patients can describe symptoms in English or Hinglish and book the right doctor without a phone
