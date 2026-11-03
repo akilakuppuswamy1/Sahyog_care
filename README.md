@@ -14,13 +14,27 @@ to the page it came from.
 - **Measured, not asserted** — golden evaluation sets written before the code; results in `evals/report.md`, generated
   from saved runs.
 
-**Tier reached:** Core, plus Pro platform items: model deadlines with provider-distinct hedge and circuit breaker; in-region tracing; `/ops` screen; cost worksheet; W3 scribe graph/API/doctor console, grounding, stock adapters, signed-note persistence, 40-case eval set, and a schedulable timeout command; 80-case W1/W2 sets and an independent W2 judge with calibration gating. W3 timeout-job scheduling is not wired. Judge calibration is pending pod labels and a measured kappa >= 0.6. Other gaps: Presidio egress replay, async ingest queue, Architect tier.
+**Tier reached: Pro** (`pro-complete`). Built: W3 text-transcript scribe with doctor review/sign-off,
+durable queued ingest and a separate worker, shared Presidio de-identification, model resilience,
+Postgres tracing and Ops, calibrated W2 judging, and the sourced cost worksheet.
+Pro is the delivery milestone; it does not mean every evaluation target is met or production deployment is ready.
 
 ## Known gaps
 
-- Evaluation targets and unmeasured outcomes: [evals/report.md](evals/report.md).
-- Security controls and residual deployment risks: [D7 threat model](docs/d7-threat-model.md).
-- **Day-8 change request:** Not received at submission; template ready in [docs/change-request/](docs/change-request/).
+- No speech-to-text or audio lifecycle: transcripts are text input.
+- W3 field F1 0.82, medicine precision/recall 0.83/0.83 remain below the 0.9 target
+  ([run 20261103-114035](evals/runs/w3-20261103-114035.json), [targets](evals/report.md)).
+- W2 faithfulness 0.868 remains below 0.9, despite qualifying held-out judge calibration
+  ([run 20261103-104837](evals/runs/w2-20261103-104837.json),
+  [calibration 20261103-061312-389012](evals/runs/judge-calibration-20261103-061312-389012.json)).
+  The [judge-zero human review](evals/runs/judge-review-w2-20261103-094651.md) records both an answer defect
+  and judge errors in an earlier run; calibration does not make the judge infallible.
+- Architect items are not built yet: verified India hosting, encryption at rest, least-privilege database roles,
+  distributed limits, retention validation and recovery drills. Production identity/booking OTP and SMS delivery
+  also remain unbuilt; W3 timeout and trace-purge commands are not scheduled.
+- Booking completion/time and doctor review time remain unmeasured. See [evaluation report](evals/report.md)
+  and [D7 residual risks](docs/d7-threat-model.md).
+- **Day-8 change request:** Not received at submission; [template](docs/change-request/).
 
 ## Layout (deck p.48)
 ```
@@ -223,10 +237,11 @@ results, explicitly marking either original-set prompt version as unmeasured whe
 `--set` defaults to `original`. The command loads repo-root dotenv in `main()` without overriding
 existing environment variables. Legacy runs without set metadata are diagnostic only and cannot certify. `--set` also accepts
 an explicit JSONL path; only the canonical holdout path receives held-out provenance. Empty/invalid
-labels fail before judge construction. Held-out model validation is pending authorization;
-no new calibration result is claimed. Without qualifying calibration, reports show
+labels fail before judge construction. Saved held-out calibration [20261103-061312-389012](evals/runs/judge-calibration-20261103-061312-389012.json)
+qualifies the current judge; [the report](evals/report.md) shows its kappa and the below-target W2 result.
+Without qualifying calibration, reports show
 `judge not calibrated (kappa X)` or `not measured`. Content hits and deterministic verification remain
-separate proxies. No calibration or new evaluation result is claimed until those commands are run.
+separate proxies. These saved results do not imply any new evaluation was run for this documentation update.
 
 ## W3 Clinical scribe (Pro)
 ```powershell

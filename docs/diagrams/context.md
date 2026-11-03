@@ -8,17 +8,17 @@ flowchart LR
     P[Priya - patient] --> SCC
     M[Meena - caregiver] --> SCC
     F[Front desk] --> SCC
-    D[Doctor - planned Pro console] -.-> SCC
+    D[Doctor - built text scribe console] --> SCC
     subgraph India[India trust boundary - target deployment]
         SCC[Sahyog Care Companion]
         SCH[Sahyog scheduling - built SQL tools]
         REC[Sahyog records - built ingest and retrieval]
-        STK[Sahyog stock - built schema and data; integration planned Pro]
+        STK[Sahyog stock - built CSV adapter; live API stub unconfigured]
         SMS[Sahyog SMS gateway - planned Pro; Core audits intent only]
-        EG[Egress adapter - built regex scrub and refuse-to-send]
+        EG[Egress adapter - built Presidio, typed tokens and regex refusal]
         SCC --> SCH
         SCC --> REC
-        SCC -.-> STK
+        SCC --> STK
         SCC -.-> SMS
         SCC --> EG
     end
@@ -27,5 +27,5 @@ flowchart LR
 ```
 
 Meena's records access requires current, scoped consent. The egress arrow states the intended contract:
-regex coverage is incomplete for names and quasi-identifiers; see [D7](../d7-threat-model.md).
-No external HIS, live pharmacy feed, SMS delivery or doctor console is claimed as built.
+statistical recognition retains risks for unfamiliar names and quasi-identifiers; see [D7](../d7-threat-model.md).
+No external HIS, live pharmacy feed, SMS delivery is claimed as built.

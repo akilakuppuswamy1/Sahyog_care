@@ -65,4 +65,4 @@ backoff. Indexed documents survive a crash before job completion without another
 ingest. Compose shares upload files between API and worker; W3 timeout scheduling
 remains planned. Ops queue metrics read `ingest_job` and omit an empty table.
 
-The adapter uses pinned local en_core_web_sm and custom Indian recognisers for W1/W2/W3, including hedges. Maps never leave process memory; replies restore locally. Migration 011 stores numeric deid_ms only. Replay egress-20261103-010825 reports zero hits in 200 synthetic payloads; statistical names/quasi-identifiers remain residual risks.
+The adapter uses pinned local en_core_web_sm and custom Indian recognisers for W1/W2/W3, including hedges. Maps never leave process memory; replies restore locally. Migration 011 stores numeric deid_ms only. Replay [egress-20261103-051910](../../evals/runs/egress-20261103-051910.json) reports 0 hits in 200 synthetic payloads with p95 14.296 ms; statistical names/quasi-identifiers remain residual risks.
