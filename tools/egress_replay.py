@@ -52,6 +52,12 @@ def enforce_zero_hits(report):
         raise RuntimeError("ADR-001 trigger c: stop egress until recognisers are fixed")
 
 
+def enforce_latency(report):
+    p95 = report["deid_ms_p95"]
+    if p95 is None or p95 > 50:
+        raise RuntimeError(f"ADR-001 de-identification p95 exceeded 50 ms: {p95}")
+
+
 def replay(seed=701):
     from services.agent.llm import ModelError
     nlp = analyzer().nlp_engine
@@ -92,6 +98,7 @@ def main():
     (destination / (run_id + ".md")).write_text(f"# {run_id}\n\nOffline, synthetic only; no network.\n\n```json\n{json.dumps(report, indent=2)}\n```\n")
     print(json.dumps(report))
     enforce_zero_hits(report)
+    enforce_latency(report)
 
 
 if __name__ == "__main__":

@@ -32,7 +32,9 @@ def build_report(runs_dir: Path) -> str:
         return round(1 - degraded, 3) if degraded is not None else "not measured"
 
     def judge_review(run_id):
-        review_path = runs_dir / f"judge-review-{run_id}.md"
+        review_path = runs_dir / f"judge-review-w2-{run_id}.md"
+        if not review_path.exists():
+            review_path = runs_dir / f"judge-review-{run_id}.md"
         if not review_path.exists():
             return None
         review = review_path.read_text(encoding="utf-8")

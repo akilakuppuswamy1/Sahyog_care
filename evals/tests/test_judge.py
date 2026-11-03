@@ -132,7 +132,7 @@ def test_report_includes_matching_human_judge_review(tmp_path):
                  "judge_prompt_version": PROMPT_VERSION, "judge_model": "judge-model"},
         "metrics": {"judge_score": .76, "latency_p95_s": 2.0},
     }), encoding="utf-8")
-    (tmp_path / f"judge-review-{run_id}.md").write_text(
+    (tmp_path / f"judge-review-w2-{run_id}.md").write_text(
         "# Judge-zero review\n\nHuman review: 1 real / 8 judge errors\n", encoding="utf-8")
 
     report = build_report(tmp_path)

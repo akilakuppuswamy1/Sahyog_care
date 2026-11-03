@@ -1,6 +1,5 @@
 """Synthetic-only regressions for the production egress boundary."""
 import json
-import statistics
 import time
 
 import pytest
@@ -9,7 +8,7 @@ from services.common import deid
 from services.agent import llm as module
 from services.common.tracing import InMemoryExporter, Tracer
 from services.agent.tests.test_llm import FakeResponse
-from tools.egress_replay import CLEAN, enforce_zero_hits, generate, replay
+from tools.egress_replay import CLEAN, enforce_latency, enforce_zero_hits, generate, replay
 
 
 def test_generator_deterministic_and_zero_hit_gate():
@@ -17,6 +16,9 @@ def test_generator_deterministic_and_zero_hit_gate():
     assert generate(2) != generate()
     with pytest.raises(RuntimeError, match="trigger c"):
         enforce_zero_hits({"total_hits": 1, "refused": 0})
+    enforce_latency({"deid_ms_p95": 50})
+    with pytest.raises(RuntimeError, match="exceeded 50 ms"):
+        enforce_latency({"deid_ms_p95": 50.1})
 
 
 def test_offline_replay_and_clinical_numbers(monkeypatch):
@@ -24,17 +26,14 @@ def test_offline_replay_and_clinical_numbers(monkeypatch):
     def no_network(*args, **kwargs):
         pytest.fail("offline replay attempted a network connection")
     monkeypatch.setattr(socket.socket, "connect", no_network)
-    replay()  # Warm the local analyzer before measuring request-path latency.
-    reports = [replay() for _ in range(5)]
-    report = reports[0]
+    report = replay()
     enforce_zero_hits(report)
     assert all(value == 1 for value in report["recall"].values())
     assert report["false_positive_rate"] == 0
     for text in CLEAN:
         assert deid.prepare_egress("", text)[1] == text
-    p95s = [sample["deid_ms_p95"] for sample in reports]
-    assert all(isinstance(value, (int, float)) for value in p95s), p95s
-    assert statistics.median(p95s) < 50, {"deid_ms_p95_runs": p95s}
+    assert isinstance(report["deid_ms_p95"], (int, float))
+    assert isinstance(report["deid_ms_median"], (int, float))
 
 
 def test_verhoeff_and_refuse_survivor(monkeypatch):
