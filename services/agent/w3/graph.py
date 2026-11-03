@@ -9,6 +9,7 @@ from langgraph.types import interrupt
 from services.agent.llm import JsonLLM
 from services.agent.w3 import nodes as n
 from services.agent.w3.nodes import W3State
+from services.agent.w3.formulary import Formulary
 from services.agent.w3.stock import StockSource
 from services.agent.w3.store import W3Store
 from services.common.tracing import Tracer, traced_node
@@ -27,7 +28,7 @@ def _review(s: W3State, store: W3Store) -> W3State:
     if not isinstance(response, dict) or response.get("action") not in {"approve", "edit", "reject"}:
         raise ValueError("doctor review requires action approve, edit, or reject")
     action = response["action"]
-    if action == "approve" and any(flag.get("kind") == "grounding" for flag in s.get("flags", [])):
+    if action == "approve" and any(flag.get("kind") in n.GROUNDING_KINDS for flag in s.get("flags", [])):
         return {"action": "blocked", "review_error": "Resolve grounding flags before signing."}
     if action == "edit":
         return {"action": action, "edits": response.get("edits", [])}
@@ -53,14 +54,14 @@ def _after_review(s: W3State) -> str:
 
 
 def build_w3(llm: JsonLLM, store: W3Store, stock: StockSource,
-             tracer: Tracer | None = None) -> StateGraph:
+             tracer: Tracer | None = None, formulary: Formulary | None = None) -> StateGraph:
     graph = StateGraph(W3State)
     functions = {
         "intake": partial(n.intake, store=store),
         "scrub": n.scrub_transcript,
         "red_flag_rules": n.red_flag_rules,
         "draft_soap": partial(n.draft_soap, llm=llm),
-        "grounding_check": partial(n.grounding_check, stock=stock),
+        "grounding_check": partial(n.grounding_check, stock=stock, formulary=formulary),
         "stock_check": partial(n.stock_check, stock=stock),
         "persist_draft": partial(n.persist_draft, store=store),
         "park_draft": partial(n.park_draft, store=store),
@@ -96,5 +97,5 @@ def build_w3(llm: JsonLLM, store: W3Store, stock: StockSource,
 
 
 def compile_w3(llm: JsonLLM, store: W3Store, stock: StockSource, checkpointer=None,
-               tracer: Tracer | None = None):
-    return build_w3(llm, store, stock, tracer).compile(checkpointer=checkpointer)
+               tracer: Tracer | None = None, formulary: Formulary | None = None):
+    return build_w3(llm, store, stock, tracer, formulary).compile(checkpointer=checkpointer)

@@ -156,6 +156,9 @@ def build_cost_sheet(runs_dir: Path) -> str:
 
 
 def main() -> None:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs-dir", type=Path, default=ROOT / "evals" / "runs")
     parser.add_argument("--output", type=Path, default=ROOT / "docs" / "cost-sheet.md")

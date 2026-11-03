@@ -33,6 +33,7 @@
     .badge { display: inline-block; border-radius: 4px; background: #e7f1ee; color: #145b55; padding: .15rem .4rem; font-size: .86rem; font-weight: 700; }
     .badge.stock { background: #fde8e7; color: #a4262c; }
     .badge.flag { background: #fff1c2; color: #785600; }
+    .badge.unknown { background: #e4e7e9; color: #52656e; }
     .out-of-stock { color: #a4262c; font-weight: 650; }
     .muted { color: #52656e; font-size: .92rem; }
     .history { margin: .35rem 0 0; padding-left: 1.25rem; }
@@ -163,7 +164,8 @@
         card.className = "medicine";
         const badges = document.createElement("div");
         const stock = document.createElement("span");
-        stock.className = "badge";
+        stock.className = medicine.status === "in_stock" || medicine.status === "out_of_stock"
+          ? "badge" : "badge unknown";
         stock.textContent = medicine.status === "in_stock" ? "IN STOCK"
           : medicine.status === "out_of_stock" ? "OUT OF STOCK" : "STOCK UNKNOWN";
         badges.append(stock);

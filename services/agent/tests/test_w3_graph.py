@@ -109,10 +109,27 @@ def test_stock_only_lists_in_stock_same_molecule_alternatives(tmp_path):
     assert [item["name"] for item in result["alternatives"]] == ["Atorlip"]
     assert all(item["composition"] == "atorvastatin" and item["suggestion_only"]
                for item in result["alternatives"])
+    # A brand the clinic does not stock cannot be matched unambiguously: unknown, not out of stock.
     unlisted = stock.check("PUN-H01", {"name": "Unlisted brand", "molecule": "atorvastatin"})
-    assert unlisted["status"] == "out_of_stock"
+    assert unlisted["status"] == "unknown"
     assert unlisted["medicine_id"] is None
-    assert [item["name"] for item in unlisted["alternatives"]] == ["Atorlip"]
+    assert unlisted["alternatives"] == []
+
+
+def test_class_only_draft_shows_unknown_stock_and_blocks_signing_until_resolved(tmp_path):
+    response = {"S": "", "O": "", "A": "", "P": "Start a statin.",
+                "medicines": [{"name": "statin", "molecule": "", "dose": "", "frequency": "",
+                               "quote": "Start a statin"}]}
+    graph, _, store, _ = graph_for(tmp_path, {"w3.draft_soap": response})
+    output, config = start(graph, "Doctor: Start a statin.")
+    item = review(output)["draft"]["medicines"][0]
+    assert (item["name"], item["molecule"], item["status"]) == ("statin", PLACEHOLDER, "unknown")
+    assert "stock_status" not in item
+    assert {flag["kind"] for flag in review(output)["flags"]} >= {"molecule_unresolved"}
+
+    blocked = graph.invoke(Command(resume={"action": "approve"}), config)
+    assert review(blocked)["error"] == "Resolve grounding flags before signing."
+    assert not store.notes
 
 
 def test_doctor_can_sign_stock_flagged_note_and_note_hash_is_present(tmp_path):

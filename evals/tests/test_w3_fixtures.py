@@ -53,6 +53,11 @@ def test_w3_eval_set_has_40_complete_gold_cases_and_required_tags():
         assert set(case["gold_soap"]) == {"S", "O", "A", "P"}
         assert isinstance(case["gold_medicines"], list)
         assert case["added_by"] and case["version"] == 1
+        assert case["set_version"] == 2
+        assert case["review_status"] == "gold drafted by agent — clinical review pending"
+        assert "ynthetic dictation" not in case["transcript"] + repr(case["gold_soap"])
+        for medicine in case["gold_medicines"]:
+            assert medicine["source"] in (None, "transcript") or medicine["source"].startswith("formulary:")
     content = EVAL_SET.read_text(encoding="utf-8")
     assert not re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", content)
     assert not re.search(r"(?<!\w)(?:\+?91[\s-]?)?[6-9]\d{9}(?!\w)", content)

@@ -94,7 +94,11 @@ def seed_records(conn):
 
 
 def main():
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
     import psycopg
+
     generate_missing()
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
         conn.execute("SELECT pg_advisory_lock(7264012)")

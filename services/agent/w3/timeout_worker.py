@@ -3,12 +3,18 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 from services.agent.w3.nodes import park_expired_reviews
 from services.agent.w3.store import PostgresW3Store
 
+ROOT = Path(__file__).resolve().parents[3]
+
 
 def main() -> None:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         raise SystemExit("DATABASE_URL is required")

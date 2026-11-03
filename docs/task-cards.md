@@ -266,10 +266,19 @@ input_bounded: yes
 cost_of_error: an invented molecule enters the plan; the doctor may sign it
 sign_off: consulting doctor (via T11)
 rung: llm
-why: Extraction is fuzzy. Every extracted molecule must appear in the
-  transcript (deterministic grounding check). A class named without a molecule
-  yields "[doctor to specify]".
-eval_cases: w3-class-not-molecule-001 (pack p.28)
+why: Extraction is fuzzy. A molecule is "supported" only if (i) the transcript
+  states it, or (ii) a brand the transcript states maps to exactly ONE
+  composition in the cleaned formulary by deterministic lookup. The model never
+  supplies a molecule. Each medicine records source = "transcript" |
+  "formulary:<product name>". An unresolved molecule, or a class named without
+  one, yields "[doctor to specify]" + flag molecule_unresolved; a brand with
+  more than one composition yields the same + flag molecule_ambiguous.
+  Pack hard case "brand versus generic": run 20261102-220544 showed the model
+  echoing the brand as the molecule ("Atorva"), which the old fallback accepted,
+  so a brand name stood in for a molecule the doctor never said. Looking the
+  brand up in the formulary keeps the useful case (Atorva -> atorvastatin)
+  without trusting the model, and refuses it where the formulary is ambiguous.
+eval_cases: w3-class-not-molecule-001 (pack p.28); w3 eval set v2, tag brand_generic
 ```
 
 ### T18

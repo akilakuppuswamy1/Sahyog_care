@@ -18,7 +18,9 @@ from pathlib import Path
 from langgraph.checkpoint.memory import InMemorySaver
 
 from services.agent.llm import OpenRouterLLM
+from services.agent.w3.formulary import Formulary, default_formulary
 from services.agent.w3.graph import compile_w3
+from services.agent.w3.nodes import PROMPT_VERSION
 from services.agent.w3.stock import ClinicCsvStockAdapter
 from services.agent.w3.store import InMemoryW3Store
 
@@ -54,11 +56,44 @@ def _key(value: object) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", str(value).casefold()))
 
 
+PLACEHOLDER_KEY = _key("[doctor to specify]")
+
+
+def _value(value: object) -> str:
+    """Normalised comparison key; the doctor-to-specify sentinel counts as empty."""
+    key = _key(value)
+    return "" if key == PLACEHOLDER_KEY else key
+
+
 def _medicine_key(medicine: dict) -> tuple[str, ...]:
-    molecule = _key(medicine.get("molecule", ""))
-    if molecule and molecule != "[doctor to specify]":
-        return ("molecule", molecule, _key(medicine.get("dose", "")))
-    return ("name", _key(medicine.get("name", "")), _key(medicine.get("dose", "")))
+    molecule, dose = _value(medicine.get("molecule", "")), _value(medicine.get("dose", ""))
+    if molecule:
+        return ("molecule", molecule, dose)
+    return ("name", _key(medicine.get("name", "")), dose)
+
+
+def _supported(medicine: dict, transcript: str, formulary: Formulary) -> bool:
+    """A molecule is supported if the transcript states it or the stated brand maps to it uniquely."""
+    molecule = _value(medicine.get("molecule", ""))
+    if f" {molecule} " in f" {_key(transcript)} " and not formulary.is_brand_only(molecule):
+        return True
+    hit = formulary.lookup(str(medicine.get("name", "")))
+    return hit.status == "one" and _key(hit.molecule) == molecule
+
+
+def stock_comparisons(case: dict, prediction: dict, stock) -> list[dict]:
+    """Expected stock (the stock source applied to the gold medicine) against what the draft showed."""
+    clinic_id = case.get("clinic_id", prediction["clinic_id"])
+    rows = []
+    for gold in case["gold_medicines"]:
+        matching = next((item for item in prediction["medicines"]
+                         if _medicine_key(item) == _medicine_key(gold)), None)
+        rows.append({
+            "name": gold["name"], "molecule": gold.get("molecule", ""),
+            "expected": stock.check(clinic_id, gold)["status"],
+            "actual": matching.get("status") if matching else None,
+        })
+    return rows
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
@@ -70,7 +105,9 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     return round(ordered[low] + (ordered[high] - ordered[low]) * (position - low), 3)
 
 
-def score(cases: list[dict], predictions: list[dict], stock: ClinicCsvStockAdapter) -> dict:
+def score(cases: list[dict], predictions: list[dict], stock: ClinicCsvStockAdapter,
+          formulary: Formulary | None = None) -> dict:
+    formulary = formulary or default_formulary()
     field_values = {field: [] for field in SOAP_FIELDS}
     medicine_tp = medicine_predicted = medicine_expected = 0
     invented_molecules = 0
@@ -91,12 +128,8 @@ def score(cases: list[dict], predictions: list[dict], stock: ClinicCsvStockAdapt
         medicine_expected += sum(gold_keys.values())
         medicine_predicted += sum(predicted_keys.values())
 
-        gold_molecules = {_key(item.get("molecule", "")) for item in gold_medicines}
-        gold_molecules.discard("")
-        gold_molecules.discard(_key("[doctor to specify]"))
         for medicine in predicted_medicines:
-            molecule = _key(medicine.get("molecule", ""))
-            if molecule and molecule != _key("[doctor to specify]") and molecule not in gold_molecules:
+            if _value(medicine.get("molecule", "")) and not _supported(medicine, case["transcript"], formulary):
                 invented_molecules += 1
 
         if "class_only" in case["tags"]:
@@ -109,16 +142,9 @@ def score(cases: list[dict], predictions: list[dict], stock: ClinicCsvStockAdapt
             )
             class_only_handled += int(handled)
 
-        clinic_id = case.get("clinic_id", prediction["clinic_id"])
-        for gold in gold_medicines:
-            if not gold.get("molecule") or gold.get("molecule") == "[doctor to specify]":
-                continue
-            expected = stock.check(clinic_id, gold)["status"]
-            matching = next((item for item in predicted_medicines
-                             if _medicine_key(item) == _medicine_key(gold)), None)
-            actual = matching.get("status") if matching else None
+        for row in stock_comparisons(case, prediction, stock):
             stock_total += 1
-            stock_correct += int(actual == expected)
+            stock_correct += int(row["actual"] == row["expected"])
 
     latencies = [float(item["latency_s"]) for item in predictions]
     field_f1 = {field: round(sum(values) / len(values), 3) if values else None
@@ -148,7 +174,7 @@ def score(cases: list[dict], predictions: list[dict], stock: ClinicCsvStockAdapt
 def report_md(meta: dict, metrics: dict, predictions: list[dict]) -> str:
     lines = [
         f"# W3 scribe eval run {meta['run_id']}", "",
-        f"- model: {meta['model']} · workflow: w3 · tokens: {meta['tokens']}", "",
+        f"- model: {meta['model']} · prompt: {meta['prompt_version']} · set: v{meta['set_version']} · workflow: w3 · tokens: {meta['tokens']}", "",
         "| Metric | Measured | Target | Met |", "|---|---:|---:|---|",
     ]
     for field in SOAP_FIELDS:
@@ -174,11 +200,15 @@ def report_md(meta: dict, metrics: dict, predictions: list[dict]) -> str:
 
 
 def main() -> None:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
     cases = [json.loads(line) for line in SET.read_text(encoding="utf-8").splitlines() if line.strip()]
     stock_dir = Path(os.environ.get(
         "W3_STOCK_DIR", ROOT / "data" / "synthetic" / "out" / "w3" / "stock"
     ))
     stock = ClinicCsvStockAdapter(stock_dir)
+    formulary = default_formulary()
     clinic_ids = sorted(path.stem for path in stock.paths)
     if not clinic_ids:
         raise SystemExit(f"No clinic stock files found in {stock_dir}")
@@ -192,7 +222,7 @@ def main() -> None:
     }
     store = InMemoryW3Store(encounters)
     llm = OpenRouterLLM(workflow="w3")
-    graph = compile_w3(llm, store, stock, InMemorySaver())
+    graph = compile_w3(llm, store, stock, InMemorySaver(), formulary=formulary)
     predictions = []
     for index, case in enumerate(cases, start=1):
         encounter_id = f"EVAL-{index:03d}"
@@ -209,15 +239,18 @@ def main() -> None:
             "id": case["id"], "route": state.get("route", "needs_review"),
             "soap": {field: soap.get(field, "") for field in SOAP_FIELDS},
             "medicines": soap.get("medicines", []), "flags": state.get("flags", []),
+            "initial_model": state.get("initial_soap_json"),
             "clinic_id": encounters[encounter_id]["clinic_id"],
             "latency_s": round(time.perf_counter() - started, 3),
         })
+        predictions[-1]["stock_expected_vs_actual"] = stock_comparisons(case, predictions[-1], stock)
         print(f"{case['id']}: {predictions[-1]['route']:15} {predictions[-1]['latency_s']}s")
 
-    metrics = score(cases, predictions, stock)
+    metrics = score(cases, predictions, stock, formulary)
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     meta = {
         "run_id": run_id, "mode": "graph", "workflow": "w3", "model": llm.model,
+        "prompt_version": PROMPT_VERSION, "set_version": cases[0].get("set_version") if cases else None,
         "tokens": {"calls": llm.usage.calls, "prompt": llm.usage.prompt_tokens,
                    "completion": llm.usage.completion_tokens},
     }

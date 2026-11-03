@@ -11,12 +11,14 @@ from typing import TypedDict
 from services.agent.llm import JsonLLM, ModelError
 from services.agent.w1.guards import scrub
 from services.agent.w1.redflags import evaluate
+from services.agent.w3.formulary import PLACEHOLDER, Formulary, default_formulary, split_name
 from services.agent.w3.stock import StockSource
 from services.agent.w3.store import W3Store
 
 
-PLACEHOLDER = "[doctor to specify]"
+PROMPT_VERSION = "w3-prompts-v2"   # v2: S/O/A/P roles, P never empty, quote holds name + final dose (run 20261102-220544)
 SOAP_FIELDS = ("S", "O", "A", "P")
+GROUNDING_KINDS = frozenset({"grounding", "molecule_unresolved", "molecule_ambiguous"})
 MEDICINE_CLASSES = re.compile(
     r"\b(statins?|antibiotics?|beta[ -]?blockers?|ace inhibitors?|nsaids?|"
     r"anticoagulants?|blood thinners?|diuretics?|steroids?)\b",
@@ -89,15 +91,30 @@ def red_flag_rules(s: W3State) -> W3State:
     return {"blocked_by_red_flag": True, "flags": flags, "route": "manual_review"}
 
 
-def draft_soap(s: W3State, llm: JsonLLM) -> W3State:
-    system = """You draft, but never sign, an Indian clinical SOAP note from a doctor-patient dictation.
+SYSTEM_PROMPT = """You draft, but never sign, an Indian clinical SOAP note from a doctor-patient dictation.
+The dictation may mix English, Hindi and Hinglish; write the note in English.
+S (subjective): what the patient reports: symptoms, history, complaints, how they take their medicines.
+O (objective): what the doctor observes or measures: examination findings, vitals, results read out.
+A (assessment): the doctor's assessment exactly as stated. Never add, upgrade or guess a diagnosis.
+P (plan): every instruction the doctor gives: medicines, tests, advice, referrals and follow-up.
+P must not be empty if the doctor gave any instruction. Use "" for a section with no content.
 Do not add facts, diagnoses, medicines, molecules, doses, or frequencies not stated in the transcript.
-Keep S, O, A, and P concise and faithful. For every medicine, copy an exact supporting quote.
-Use a known brand only as the name; do not infer its molecule unless the transcript names it.
-If a medicine class is mentioned without a molecule, preserve the class as the name and leave molecule empty.
+Keep S, O, A, and P concise and faithful; do not repeat one sentence in several sections.
+Medicines: list every medicine the doctor names, as spoken (brand, generic, or class).
+- name: the medicine as spoken. Use a brand only as the name.
+- molecule: only a molecule the doctor actually says, otherwise "". Never infer it from a brand or a class.
+- dose: the final dose after any correction ("sorry", "make that"), as spoken.
+- frequency: as spoken, otherwise "".
+- quote: one exact contiguous span of the transcript that contains the medicine name AND the final
+  (corrected) dose, and the frequency when stated.
+If only a class is named (statin, antibiotic), name is the class, and molecule and dose are "".
 Return JSON only:
 {"S":"...","O":"...","A":"...","P":"...","medicines":[{"name":"...","molecule":"...",
 "dose":"...","frequency":"...","quote":"exact transcript words"}]}"""
+
+
+def draft_soap(s: W3State, llm: JsonLLM) -> W3State:
+    system = SYSTEM_PROMPT
     try:
         result = llm.complete_json(
             system, s["transcript"], purpose="w3.draft_soap", trace_id=s["trace_id"]
@@ -169,62 +186,89 @@ def _dose_is_current(quote: str, dose: str) -> bool:
     return bool(dose_amount and _key(dose_amount.group(0)) == _key(later_doses[-1].group(0)))
 
 
-def grounding_check(s: W3State, stock: StockSource) -> W3State:
+def _flag(kind: str, index: int, field: str, message: str, **extra) -> dict:
+    return {"kind": kind, "field": f"medicines.{index}.{field}", "message": message, **extra}
+
+
+def _name_in(text: str, name: str) -> bool:
+    """The name, or its brand words without form/strength ('Atorva Tablet' -> 'atorva'), is in text."""
+    words = " ".join(split_name(name).words)
+    return bool(name) and (_contains(text, name) or bool(words) and _contains(text, words))
+
+
+def _ground_medicine(medicine: dict, index: int, transcript: str, formulary: Formulary,
+                     flags: list[dict]) -> dict:
+    """Molecule rule: stated in the quote, or the stated brand maps to one formulary composition."""
+    quote, name, molecule = medicine.get("quote", ""), medicine.get("name", ""), medicine.get("molecule", "")
+    quote_supported = bool(quote) and _contains(transcript, quote)
+    medicine["source"] = None
+    if not quote_supported:
+        stated = next((cls for cls in (_class_in_quote(name), _class_in_quote(quote))
+                       if cls and _contains(transcript, cls)), None)
+        medicine.update(name=stated or PLACEHOLDER, molecule=PLACEHOLDER, quote="")
+        flags.append(_flag("grounding", index, "quote", "medicine quote is not present in the transcript"))
+        flags.append(_flag("molecule_unresolved", index, "molecule",
+                           "molecule is not stated; doctor to specify"))
+    else:
+        name_supported = _name_in(quote, name)
+        is_class = bool(MEDICINE_CLASSES.fullmatch(name.strip()))
+        # Without a formulary an echo of the name could be a brand, so it is not taken as a molecule.
+        echoes_name = not formulary.available and _key(molecule) in {_key(name), _key(" ".join(split_name(name).words))}
+        stated_molecule = (
+            bool(molecule) and molecule != PLACEHOLDER and not MEDICINE_CLASSES.fullmatch(molecule.strip())
+            and _contains(quote, molecule) and not echoes_name and not formulary.is_brand_only(molecule)
+        )
+        resolved = PLACEHOLDER
+        if stated_molecule:
+            resolved, medicine["source"] = molecule, "transcript"
+            if not name_supported:
+                medicine["name"] = molecule
+        else:
+            if not name_supported:
+                medicine["name"] = _class_in_quote(quote) or PLACEHOLDER
+                flags.append(_flag("grounding", index, "molecule",
+                                   "medicine is not supported by a transcript quote"))
+            hit = formulary.lookup(name) if name_supported and not is_class else None
+            if hit and hit.status == "one":
+                resolved, medicine["source"] = hit.molecule, f"formulary:{hit.product}"
+            elif hit and hit.status == "ambiguous":
+                flags.append(_flag("molecule_ambiguous", index, "molecule",
+                                   "brand maps to more than one composition; doctor to specify",
+                                   candidates=list(hit.candidates)))
+            if not (hit and hit.status in {"one", "ambiguous"}):
+                flags.append(_flag("molecule_unresolved", index, "molecule",
+                                   "molecule is not stated and the brand is not in the formulary"
+                                   if hit else "molecule is not stated; doctor to specify"))
+        medicine["molecule"] = resolved
+
+    dose = medicine.get("dose", "")
+    if not dose or not quote_supported or not _dose_is_current(quote, dose):
+        medicine["dose"] = PLACEHOLDER
+        flags.append(_flag("grounding", index, "dose", "dose is missing, unsupported, or superseded"))
+    frequency = medicine.get("frequency", "")
+    if frequency and (not quote_supported or not _contains(quote, frequency)):
+        medicine["frequency"] = PLACEHOLDER
+        flags.append(_flag("grounding", index, "frequency", "frequency is not supported by the quote"))
+    return medicine
+
+
+def grounding_check(s: W3State, stock: StockSource, formulary: Formulary | None = None) -> W3State:
+    formulary = formulary or default_formulary()
     transcript = s["transcript"]
-    medicines = [dict(item) for item in s.get("medicines", [])]
-    flags = [flag for flag in s.get("flags", []) if flag.get("kind") not in {"grounding", "stock"}]
+    flags = [flag for flag in s.get("flags", [])
+             if flag.get("kind") not in GROUNDING_KINDS | {"stock"}]
+    medicines = [_ground_medicine(dict(item), index, transcript, formulary, flags)
+                 for index, item in enumerate(s.get("medicines", []))]
     for item in MEDICINE_CLASSES.finditer(transcript):
         class_name = item.group(0)
-        if not any(_contains(existing.get("name", ""), class_name)
-                   or _contains(existing.get("quote", ""), class_name) for existing in medicines):
-            medicines.append({"name": class_name, "molecule": "", "dose": "", "frequency": "",
-                              "quote": class_name})
-
-    for index, medicine in enumerate(medicines):
-        quote = medicine.get("quote", "")
-        quote_supported = bool(quote) and _contains(transcript, quote)
-        name = medicine.get("name", "")
-        molecule = medicine.get("molecule", "")
-        canonical = stock.molecule_for(name) if name else None
-        name_supported = _contains(quote, name) if name else False
-        molecule_supported = (
-            (_contains(quote, molecule) if molecule else False)
-            or bool(canonical and molecule and _key(canonical) == _key(molecule))
-        )
-        if not molecule and name_supported and not MEDICINE_CLASSES.fullmatch(name):
-            molecule, molecule_supported = canonical or name, True
-        if not name_supported and molecule_supported:
-            medicine["name"] = molecule
-            name = molecule
-        if not name_supported and not molecule_supported:
-            medicine["name"] = _class_in_quote(quote) or PLACEHOLDER
-            medicine["molecule"] = PLACEHOLDER
-            flags.append({"kind": "grounding", "field": f"medicines.{index}.molecule",
-                          "message": "medicine is not supported by a transcript quote"})
-        elif not molecule_supported:
-            medicine["molecule"] = PLACEHOLDER
-            flags.append({"kind": "grounding", "field": f"medicines.{index}.molecule",
-                          "message": "molecule is not supported by the quoted medicine"})
-        else:
-            medicine["molecule"] = molecule
-        if not quote_supported:
-            medicine["name"] = PLACEHOLDER
-            medicine["molecule"] = PLACEHOLDER
-            flags.append({"kind": "grounding", "field": f"medicines.{index}.quote",
-                          "message": "medicine quote is not present in the transcript"})
-
-        dose = medicine.get("dose", "")
-        if not dose or not quote_supported or not _dose_is_current(quote, dose):
-            medicine["dose"] = PLACEHOLDER
-            flags.append({"kind": "grounding", "field": f"medicines.{index}.dose",
-                          "message": "dose is missing, unsupported, or superseded"})
-        frequency = medicine.get("frequency", "")
-        if frequency and (not quote_supported or not _contains(quote, frequency)):
-            medicine["frequency"] = PLACEHOLDER
-            flags.append({"kind": "grounding", "field": f"medicines.{index}.frequency",
-                          "message": "frequency is not supported by the quote"})
-        if not quote_supported:
-            medicine["quote"] = ""
+        if any(_contains(existing.get("name", ""), class_name) for existing in medicines):
+            continue
+        index = len(medicines)
+        medicines.append({"name": class_name, "molecule": PLACEHOLDER, "dose": PLACEHOLDER,
+                          "frequency": "", "quote": class_name, "source": None})
+        flags.append(_flag("molecule_unresolved", index, "molecule",
+                           "a medicine class was named without a molecule; doctor to specify"))
+        flags.append(_flag("grounding", index, "dose", "dose is missing, unsupported, or superseded"))
 
     soap_json = dict(s["soap_json"])
     soap_json["medicines"] = medicines
@@ -236,7 +280,7 @@ def stock_check(s: W3State, stock: StockSource) -> W3State:
     flags = [flag for flag in s.get("flags", []) if flag.get("kind") != "stock"]
     for index, medicine in enumerate(medicines):
         if medicine.get("molecule") == PLACEHOLDER:
-            medicine.update(stock_status="unknown", as_of=None, alternatives=[])
+            medicine.update(medicine_id=None, status="unknown", as_of=None, alternatives=[])
             continue
         result = stock.check(s["clinic_id"], medicine)
         medicine.update(result)
@@ -303,7 +347,7 @@ def apply_edits(s: W3State, store: W3Store) -> W3State:
             store.record_edit(s["draft_id"], field, before, value, s["doctor_id"])
             history.append({"field": field, "before": before, "after": value, "edited_by": s["doctor_id"]})
     soap_json["medicines"] = medicines
-    flags = [flag for flag in s.get("flags", []) if flag.get("kind") not in {"grounding", "stock"}]
+    flags = [flag for flag in s.get("flags", []) if flag.get("kind") not in GROUNDING_KINDS | {"stock"}]
     return {"soap_json": soap_json, "medicines": medicines, "edit_history": history,
             "flags": flags, "action": ""}
 
