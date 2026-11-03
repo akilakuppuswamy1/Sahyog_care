@@ -10,6 +10,7 @@ proposed: <what the agent produced>
 accepted: <what we kept>
 rejected: <what we threw out>
 why: <the reason, with the test or check that caught it>
+notes: <what the agent got wrong and which test or log caught it>
 ```
 
 ---
@@ -297,3 +298,22 @@ notes:
 - D7 offline assurance: dependency inspection found the default email recogniser can refresh a public suffix list. Production uses a local custom email pattern; the independent scanner uses its own email regex plus Presidio person/phone recognition. The replay test forbids socket connections. Missing local spaCy models fail startup rather than downloading.
 - D7 replay: `egress-20261103-010825` contains aggregate metrics only: 200 seeded synthetic W1/W2/W3 payloads, zero independent-detector hits/refusals, recall 1.0 for all ten generated identifier types, and 0.0 false-positive rate on the four specified clean clinical examples. Median 7.2 ms, p95 8.5 ms, max including first-use 17 ms. Statistical names and arbitrary contextual quasi-identifiers remain residual risks; no deployment-residency claim.
 - D7 verification: full `.venv\Scripts\pytest.exe -o addopts=''` with the required localhost:55432 DATABASE_URL and PYTHON_DOTENV_DISABLED=1: **337 passed, 13 warnings in 69.16s (0:01:09)**. No test was weakened or deleted. Only the requested offline replay ran; no model evals, OpenRouter calls, browser use, Docker image build or `.env` access. Pre-existing cost-sheet/report and W3 run changes were preserved; human accepted/rejected/why fields remain untouched.
+
+### PR #pending — Pro: durable queued records ingestion — 2026-11-03
+agent: Codex (GPT-6)
+proposed:
+- Add migration 012 (008–011 already occupied), an owner-bound ingest_job queue and document content hashes; apply with tools/migrate.py locally.
+- Replace production BackgroundTasks with enqueue-only uploads, owner-only job status, demo polling and sourced Ops queue metrics; keep an explicit injected test callback.
+- Add a separate local-embedder worker with SKIP LOCKED claims, session-lock crash fencing, three-attempt exponential backoff, indexed-content recovery and graceful signal handling; share upload storage in Compose.
+- Cover queued PDF safety/retrieval, owner isolation, concurrent workers, disconnect recovery, final-attempt failure, backoff, content idempotency, queue metrics and Ctrl+C; update run steps and architecture.
+accepted: _pod to fill_
+rejected: _pod to fill_
+why: _pod to fill_
+notes:
+- What the agent got wrong: the first worker manifest omitted file, which register() evaluates even when uri exists. test_upload_index_answer_isolation and test_uploaded_redteam_is_flagged caught jobs returning to queued instead of done; adding the PDF filename fixed the ingest call.
+- What the agent got wrong: worker-connection tests reused conn.info.dsn, which omits passwords. test_two_workers_never_process_same_job and test_disconnected_worker_mid_job_is_retried caught fe_sendauth; connections now use the prescribed DATABASE_URL.
+- The first virtualenv invocation was denied access to its base interpreter by the sandbox; approved execution through the same .venv succeeded. Migration command printed Applied 012_ingest_jobs.sql.
+- Import scan found no repository imports/references of services.llm or services.w1; both were left untouched. The compatibility llm module re-exports services.agent.llm, and legacy W1 sources themselves import services.agent modules.
+- Focused queued-upload integration verification: 9 passed, 13 warnings in 27.40s before adding the explicit Ctrl+C regression. Full-suite result will be recorded below. No browser, eval runner, OpenRouter call, Docker image build or .env access.
+- Final verification: full `.venv\Scripts\python.exe -m pytest -o addopts='' -q` with `DATABASE_URL=postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog` and `PYTHON_DOTENV_DISABLED=1`: **344 passed, 13 warnings in 78.75s (0:01:18)**, zero failures. This includes the Ctrl+C regression and live-worker fencing after retry eligibility expires; no tests were weakened or deleted.
+- Node parsed both edited pages' inline JavaScript successfully. YAML checks verified the app-profile worker image, migrate dependency and shared upload volume without invoking Docker; the local DB ledger and public.ingest_job were verified. `git diff --check` passed. Human accepted/rejected/why fields remain `_pod to fill_`.

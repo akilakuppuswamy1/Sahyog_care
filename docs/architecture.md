@@ -1,6 +1,6 @@
 ﻿# Architecture pack — version 2
 
-Status: 2026-11-02. W1/W2, Core API, Postgres tracing, and the W3 scribe graph, doctor API/console, draft persistence, eval set, and timeout command are built; the W3 timeout job is not scheduled in the demo. India residency is a deployment target, not a claim about this local demo. This supersedes v1's prospective diagrams.
+Status: 2026-11-03. W1/W2, Core API, Postgres tracing, durable queued ingest with a separate worker and owner-only job status, and the W3 scribe graph, doctor API/console, draft persistence, eval set, and timeout command are built; the W3 timeout job is not scheduled in the demo. India residency is a deployment target, not a claim about this local demo. This supersedes v1's prospective diagrams.
 
 ## Views and decisions
 
@@ -50,6 +50,14 @@ Pack references below are the task's supplied comparisons and the repo's existin
 The production dependency factory gives W1 and W3 a PostgresSaver; W2 has no checkpointer. W3 API ownership checks precede reads/resumes, but demo bearer subjects are forgeable. Front desk and doctor routes distinguish roles only through that demo mechanism. Least-privilege database roles and stronger identity are not implemented.
 
 Booking capacity and appointment idempotency are database enforced. Triage replay has a persistent mapping; resume and upload replay caches are process-local. A crash before finishing a triage reservation can leave it running indefinitely. Replay does not fingerprint triage text. Explicit audit writes cover returned documents in every retrieval pass, not all internal SQL candidates or arbitrary direct database reads.
+
+Migration 012 adds `ingest_job` (22 application tables in total). Upload content hashes
+are unique per authenticated owner, so identical PDF submissions reuse the durable
+document/job across API restarts even though upload idempotency-key caches remain
+process-local. The separate worker claims with `FOR UPDATE SKIP LOCKED`, fences
+live work with session locks, recovers disconnected attempts, and stops after three
+attempts. `/records/api/jobs/{job_id}` filters by owner; Ops queue depth and oldest
+queued age come from `ingest_job`. See the container view and README worker steps.
 
 Tracing is built with Postgres as the only span store. The `/ops` screen and JSON endpoints require
 the demo `ops` role; each populated tile names its source. `purge_trace_spans()` deletes spans older

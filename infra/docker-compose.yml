@@ -35,6 +35,19 @@ services:
       PYTHON_DOTENV_DISABLED: "1"
     volumes:
       - hfcache:/root/.cache/huggingface
+  worker:
+    image: sahyog-api:local
+    profiles: ["app"]
+    command: ["python", "-m", "services.records.worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://sahyog:sahyog_local_only@db:5432/sahyog
+      PYTHON_DOTENV_DISABLED: "1"
+    volumes:
+      - hfcache:/root/.cache/huggingface
+      - uploads:/app/data/uploads
   api:
     image: sahyog-api:local
     profiles: ["app"]
@@ -58,6 +71,8 @@ services:
     volumes:
       - hfcache:/root/.cache/huggingface
       - ../data/synthetic/out/w3/stock:/app/data/synthetic/out/w3/stock:ro
+      - uploads:/app/data/uploads
 volumes:
   pgdata:
   hfcache:
+  uploads:

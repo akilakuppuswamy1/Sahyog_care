@@ -67,7 +67,7 @@ pytest
 ### Run the app
 
 - Front desk: apply `infra/db/005_frontdesk.sql`, open `/?view=frontdesk` (the staff shell; `/frontdesk` also serves it with a staff bearer header), and use a staff ID (`Bearer demo-staff-FD01`, demo auth only) to review hand-offs and override bookings.
-- Upload: in **My records**, choose **Upload a report** (text PDF, up to 10 MB); the status list polls every two seconds until indexed or failed. Uploads are stored in git-ignored `data/uploads/`.
+- Upload: in **My records**, choose **Upload a report** (text PDF, up to 10 MB). `POST /records/upload` only enqueues and returns HTTP 202 `{job_id, doc_id, status:"queued"}`; the page polls the owner-only `/records/api/jobs/{job_id}` every two seconds. Other patients receive 404. Uploads are stored in git-ignored `data/uploads/` (a shared `uploads` volume in Compose).
 - Scribe: generate the synthetic clinic stock CSVs with `python data/synthetic/generate_stock.py` (large outputs are ignored by Git and Docker), apply migrations with `python tools/migrate.py`, then open `/scribe`. Compose mounts that host directory read-only; set `W3_STOCK_DIR` when using a different location. Sign in with a doctor ID and use `Bearer demo-doc-<DOCTOR_ID>` demo authentication. The API requires the treating doctor's encounter ID; drafts remain unsigned until approved.
 
 
@@ -77,6 +77,23 @@ After the database setup and W2 fixture ingestion below, run locally from the ac
 $env:DATABASE_URL="postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog"
 python -m uvicorn services.api.main:app --port 8000
 ```
+
+Apply migration `012_ingest_jobs.sql` with `python tools/migrate.py`. In a second
+activated-venv terminal, set the same `DATABASE_URL` and start the local worker:
+
+```powershell
+$env:DATABASE_URL="postgresql://sahyog:sahyog_local_only@localhost:55432/sahyog"
+python -m services.records.worker
+```
+
+The worker runs local bge-m3 ingestion, retries up to three attempts with 1 s / 2 s
+backoff, and records a safe `last_error` on failure. A disconnected worker's job
+is recoverable; Ctrl+C lets active ingestion finish before stopping. Identical PDF
+content for the same owner reuses its document and job across API restarts. The
+in-process ingest callback is reserved for explicitly injected test dependencies.
+The app Compose profile starts `worker` after `migrate` using the API image and
+shared upload volume. Ops shows queue depth and oldest queued age from `ingest_job`
+when that table has rows.
 
 The copied repo-root `.env` supplies `SAHYOG_DEMO_AUTH=1` for local runs; do not set it in production. Supply `OPENROUTER_API_KEY` and the model environment variables there as well. The production dependency builder loads `.env` without overriding existing environment variables; test dependencies do not load it. Open http://localhost:8000 and sign in with a synthetic patient ID such as `PT-W2-0001` (the dev-only bearer stub is enabled by `.env`).
 

@@ -76,6 +76,10 @@
       } else if (tile.id === "scope-leaks") {
         formatted.text = String(value);
         formatted.status = Number(value) === 0 ? "good" : "bad";
+      } else if (tile.id === "ingest-queue") {
+        formatted.text = `${value.depth} queued`;
+        if (value.oldest_queued_age_seconds !== null)
+          formatted.text += `; oldest ${numberText(value.oldest_queued_age_seconds)} s`;
       } else if (tile.id === "review-queue") {
         const open = Number(value.open) || 0;
         formatted.text = open === 0 ? "None waiting"

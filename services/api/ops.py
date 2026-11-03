@@ -80,6 +80,13 @@ def build_ops_summary(deps, runs_dir: Path | None = None) -> dict:
     since = now - timedelta(hours=24)
     spans = _read_spans(deps, since=since)
     tiles: list[dict] = []
+    conn = getattr(getattr(deps, "store", None), "conn", None)
+    if conn is not None and conn.execute("SELECT to_regclass('ingest_job')").fetchone()[0]:
+        count, depth, age = conn.execute("""SELECT count(*),count(*) FILTER (WHERE status='queued'),
+            extract(epoch FROM now()-min(created_at) FILTER (WHERE status='queued')) FROM ingest_job""").fetchone()
+        if count:
+            _add_tile(tiles, "ingest-queue", "ingest queue", {"depth": depth,
+                      "oldest_queued_age_seconds": float(age) if age is not None else None}, "ingest_job")
     if spans is not None:
         for workflow, span_name, tile_id, label in (
             ("w1", "triage_turn", "triage-p95", "p95 triage turn"),

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from langgraph.types import Command
@@ -474,17 +474,8 @@ def create_app(deps_factory=build_postgres_deps):
         deps = request.app.state.deps
         with deps.lock: return fd.override(deps, user, aid, body.slot_id, key)
 
-    def ingest_upload(deps, manifest):
-        """Core uses an in-process background task. Pro uses a queue with a job id."""
-        from services.records.ingest import ingest_one
-        if deps.upload_ingest is not None:
-            deps.upload_ingest(manifest)
-        else:
-            with deps.lock:
-                ingest_one(deps.store.conn, manifest, deps.embedder)
-
     @app.post("/records/upload", status_code=202)
-    async def upload(request: Request, background: BackgroundTasks, file: UploadFile = File(...), user: str = Depends(current_user)):
+    async def upload(request: Request, file: UploadFile = File(...), user: str = Depends(current_user)):
         key = write_key(request)
         data = await file.read(10 * 1024 * 1024 + 1)
         await file.close()
@@ -508,14 +499,39 @@ def create_app(deps_factory=build_postgres_deps):
         manifest = dict(doc_id=doc, patient_id=user, type="other", file=path.name,
                         path=str(path), uri=path.as_uri(), title="Uploaded report", date=None)
         try:
-            with deps.lock: register(deps.store.conn, manifest)
+            with deps.lock, deps.store.conn.transaction():
+                # Serialize identical content across API instances, scoped to its owner.
+                deps.store.conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,1))", (user + fingerprint,))
+                existing = deps.store.conn.execute(
+                    "SELECT j.job_id,j.doc_id,j.status FROM ingest_job j JOIN document d USING(doc_id) WHERE d.patient_id=%s AND d.content_hash=%s",
+                    (user, fingerprint)).fetchone()
+                if existing:
+                    path.unlink(missing_ok=True)
+                    return dict(job_id=str(existing[0]), doc_id=existing[1], status=existing[2])
+                register(deps.store.conn, manifest)
+                deps.store.conn.execute("UPDATE document SET content_hash=%s WHERE doc_id=%s", (fingerprint,doc))
+                job_id = uuid4()
+                deps.store.conn.execute("INSERT INTO ingest_job(job_id,doc_id,patient_id) VALUES (%s,%s,%s)", (job_id,doc,user))
         except Exception:
             path.unlink(missing_ok=True)
             raise
-        background.add_task(ingest_upload, deps, manifest)
-        result = dict(doc_id=doc, status="queued")
+        # Only explicitly injected test dependencies may execute in-process.
+        if deps.upload_ingest is not None:
+            deps.upload_ingest(manifest)
+        result = dict(job_id=str(job_id), doc_id=doc, status="queued")
         upload_replays[user, key] = (fingerprint, result)
         return result
+
+    @app.get("/records/api/jobs/{job_id}")
+    def job_status(job_id: UUID, request: Request, user: str = Depends(current_user)):
+        deps = request.app.state.deps
+        with deps.lock:
+            if not hasattr(deps.store, "conn"):
+                raise HTTPException(404, "Job not found")
+            rows = fd.rows(deps.store.conn, "SELECT job_id,doc_id,status,attempts,last_error,created_at,started_at,finished_at FROM ingest_job WHERE job_id=%s AND patient_id=%s", (job_id,user))
+            if not rows:
+                raise HTTPException(404, "Job not found")
+            return rows[0]
 
     @app.get("/records/documents")
     def documents(request: Request, user: str = Depends(current_user)):

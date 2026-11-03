@@ -33,7 +33,7 @@ class AppDeps:
     w1_llm: Any = None
     store: Any = None
     embedder: Any = None
-    upload_ingest: Any = None
+    upload_ingest: Any = None  # Explicit in-process callback for injected test deps only.
     w1_requests: Any = field(default_factory=lambda: W1Requests())
     tracer: Tracer | None = None
     w3: Any = None
@@ -161,14 +161,8 @@ def build_postgres_deps() -> AppDeps:
                 return cur.execute("SELECT * FROM who_saw_record WHERE patient_id = %s ORDER BY at DESC",
                                    (patient_id,)).fetchall()
 
-        def upload_ingest(manifest):
-            # Separate connection lets document status reads proceed during parsing/embedding.
-            from services.records.ingest import ingest_one
-            with store_pool.connection() as worker_conn:
-                ingest_one(worker_conn, manifest, embedder)
-
         return AppDeps(w1, w2, audit, close=stack.close, store=store, embedder=embedder,
-                       upload_ingest=upload_ingest, w1_requests=W1Requests(pool), tracer=tracer,
+                       w1_requests=W1Requests(pool), tracer=tracer,
                        w3=w3, w3_store=w3_store, w3_requests=W3Requests(pool))
     except BaseException:
         stack.close()
