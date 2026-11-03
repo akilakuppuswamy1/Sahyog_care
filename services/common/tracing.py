@@ -33,6 +33,7 @@ class TraceSpan:
     tokens_in: int | None = None
     tokens_out: int | None = None
     error_type: str | None = None
+    deid_ms: float | None = None
 
 
 class SpanExporter(Protocol):
@@ -64,11 +65,11 @@ class PostgresExporter:
     def export(self, span: TraceSpan) -> None:
         query = """INSERT INTO trace_span
             (trace_id, span_id, parent_span_id, workflow, name, kind, started_at, duration_ms,
-             status, model, provider, served_by, tokens_in, tokens_out, error_type)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+             status, model, provider, served_by, tokens_in, tokens_out, error_type, deid_ms)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         values = (span.trace_id, span.span_id, span.parent_span_id, span.workflow, span.name,
                   span.kind, span.started_at, span.duration_ms, span.status, span.model,
-                  span.provider, span.served_by, span.tokens_in, span.tokens_out, span.error_type)
+                  span.provider, span.served_by, span.tokens_in, span.tokens_out, span.error_type, span.deid_ms)
         if hasattr(self.connection_pool, "connection"):
             with self.connection_pool.connection() as conn:
                 conn.execute(query, values)
@@ -86,7 +87,7 @@ class PostgresExporter:
             params.append(since)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         query = ("SELECT trace_id, span_id, parent_span_id, workflow, name, kind, started_at, duration_ms, "
-                 "status, model, provider, served_by, tokens_in, tokens_out, error_type "
+                 "status, model, provider, served_by, tokens_in, tokens_out, error_type, deid_ms "
                  f"FROM trace_span{where} ORDER BY started_at, span_id")
         if hasattr(self.connection_pool, "connection"):
             with self.connection_pool.connection() as conn:

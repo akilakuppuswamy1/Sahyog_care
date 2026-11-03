@@ -21,3 +21,6 @@ psycopg-pool==3.3.3          # checked 2026-11-02
 
 python-multipart>=0.0.20
 tzdata>=2025.1
+
+spacy==3.8.18
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl

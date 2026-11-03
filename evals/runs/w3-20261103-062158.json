@@ -1,0 +1,1893 @@
+{
+  "meta": {
+    "run_id": "20261103-062158",
+    "mode": "graph",
+    "workflow": "w3",
+    "model": "qwen/qwen3-235b-a22b-2507",
+    "prompt_version": "w3-prompts-v2",
+    "set_version": 2,
+    "tokens": {
+      "calls": 47,
+      "prompt": 19552,
+      "completion": 2947
+    }
+  },
+  "metrics": {
+    "cases": 40,
+    "field_f1": {
+      "S": 0.717,
+      "O": 0.876,
+      "A": 0.85,
+      "P": 0.829
+    },
+    "field_f1_macro": 0.818,
+    "medicine_precision": 0.7,
+    "medicine_recall": 0.7,
+    "invented_molecules": 0,
+    "class_only_handled": {
+      "correct": 5,
+      "total": 5,
+      "rate": 1.0
+    },
+    "stock_flag_correct": {
+      "correct": 21,
+      "total": 30,
+      "rate": 0.7
+    },
+    "latency_p50_s": 2.241,
+    "latency_p95_s": 4.164,
+    "review_time_p50_s": null,
+    "review_time_p95_s": null
+  },
+  "predictions": [
+    {
+      "id": "w3-001",
+      "route": "needs_review",
+      "soap": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner."
+      },
+      "medicines": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "dose": "10 mg",
+          "frequency": "at night",
+          "quote": "Start Atorva 10 mg at night",
+          "source": "formulary:Atorva",
+          "medicine_id": "MED58",
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner.",
+        "medicines": [
+          {
+            "name": "Atorva",
+            "molecule": "",
+            "dose": "10 mg",
+            "frequency": "at night",
+            "quote": "Start Atorva 10 mg at night"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 9.898,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-002",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient asked which statin.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin."
+      },
+      "medicines": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start a statin",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        },
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient asked which statin.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin.",
+        "medicines": [
+          {
+            "name": "statin",
+            "molecule": "",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start a statin"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.005,
+      "stock_expected_vs_actual": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-003",
+      "route": "needs_review",
+      "soap": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "500 mg",
+          "frequency": "roz raat ko",
+          "quote": "Roz raat ko metformin 500 mg lena",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "500 mg",
+            "frequency": "roz raat ko",
+            "quote": "Roz raat ko metformin 500 mg lena"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.184,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-004",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take metformin 250 mg twice daily."
+      },
+      "medicines": [
+        {
+          "name": "[doctor to specify]",
+          "molecule": "[doctor to specify]",
+          "dose": "250 mg",
+          "frequency": "twice daily",
+          "quote": "make that 250 mg twice daily",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.molecule",
+          "message": "medicine is not supported by a transcript quote"
+        },
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        }
+      ],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take metformin 250 mg twice daily.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "",
+            "dose": "250 mg",
+            "frequency": "twice daily",
+            "quote": "make that 250 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.062,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-005",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food."
+      },
+      "medicines": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "625 mg",
+          "dose": "625 mg",
+          "frequency": "twice daily",
+          "quote": "Augmentin 625 Duo Tablet 625 mg twice daily",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food.",
+        "medicines": [
+          {
+            "name": "Augmentin 625 Duo Tablet",
+            "molecule": "625 mg",
+            "dose": "625 mg",
+            "frequency": "twice daily",
+            "quote": "Augmentin 625 Duo Tablet 625 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 3.018,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "amoxycillin + clavulanic acid",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-006",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start metformin.",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start metformin."
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.762,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-007",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.179,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-008",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.088,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-009",
+      "route": "needs_review",
+      "soap": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner."
+      },
+      "medicines": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "dose": "10 mg",
+          "frequency": "at night",
+          "quote": "Start Atorva 10 mg at night",
+          "source": "formulary:Atorva",
+          "medicine_id": "MED58",
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner.",
+        "medicines": [
+          {
+            "name": "Atorva",
+            "molecule": "",
+            "dose": "10 mg",
+            "frequency": "at night",
+            "quote": "Start Atorva 10 mg at night"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.612,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-010",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient asked which statin to start.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review."
+      },
+      "medicines": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start a statin",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        },
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient asked which statin to start.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review.",
+        "medicines": [
+          {
+            "name": "statin",
+            "molecule": "",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start a statin"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.017,
+      "stock_expected_vs_actual": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-011",
+      "route": "needs_review",
+      "soap": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "500 mg",
+          "frequency": "roz raat ko",
+          "quote": "Roz raat ko metformin 500 mg lena",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "500 mg",
+            "frequency": "roz raat ko",
+            "quote": "Roz raat ko metformin 500 mg lena"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.968,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-012",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": ""
+      },
+      "medicines": [
+        {
+          "name": "[doctor to specify]",
+          "molecule": "[doctor to specify]",
+          "dose": "250 mg",
+          "frequency": "twice daily",
+          "quote": "make that 250 mg twice daily",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.molecule",
+          "message": "medicine is not supported by a transcript quote"
+        },
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        }
+      ],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "250 mg",
+            "frequency": "twice daily",
+            "quote": "make that 250 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.106,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-013",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food."
+      },
+      "medicines": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "625 mg",
+          "dose": "625 mg",
+          "frequency": "twice daily",
+          "quote": "Augmentin 625 Duo Tablet 625 mg twice daily",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food.",
+        "medicines": [
+          {
+            "name": "Augmentin 625 Duo Tablet",
+            "molecule": "625 mg",
+            "dose": "625 mg",
+            "frequency": "twice daily",
+            "quote": "Augmentin 625 Duo Tablet 625 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 3.674,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "amoxycillin + clavulanic acid",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-014",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start metformin.",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start metformin."
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.322,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-015",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.152,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-016",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.175,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-017",
+      "route": "needs_review",
+      "soap": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner."
+      },
+      "medicines": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "dose": "10 mg",
+          "frequency": "at night",
+          "quote": "Start Atorva 10 mg at night",
+          "source": "formulary:Atorva",
+          "medicine_id": "MED58",
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner.",
+        "medicines": [
+          {
+            "name": "Atorva",
+            "molecule": "",
+            "dose": "10 mg",
+            "frequency": "at night",
+            "quote": "Start Atorva 10 mg at night"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.143,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-018",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient asked which statin they should take.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review."
+      },
+      "medicines": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start a statin",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        },
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient asked which statin they should take.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review.",
+        "medicines": [
+          {
+            "name": "statin",
+            "molecule": "",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start a statin"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.652,
+      "stock_expected_vs_actual": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-019",
+      "route": "needs_review",
+      "soap": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "500 mg",
+          "frequency": "roz raat ko",
+          "quote": "Roz raat ko metformin 500 mg lena",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "500 mg",
+            "frequency": "roz raat ko",
+            "quote": "Roz raat ko metformin 500 mg lena"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.458,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-020",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take metformin 250 mg twice daily."
+      },
+      "medicines": [
+        {
+          "name": "[doctor to specify]",
+          "molecule": "[doctor to specify]",
+          "dose": "250 mg",
+          "frequency": "twice daily",
+          "quote": "make that 250 mg twice daily",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.molecule",
+          "message": "medicine is not supported by a transcript quote"
+        },
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        }
+      ],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take metformin 250 mg twice daily.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "250 mg",
+            "frequency": "twice daily",
+            "quote": "make that 250 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 3.504,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-021",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food."
+      },
+      "medicines": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "625 mg",
+          "dose": "625 mg",
+          "frequency": "twice daily",
+          "quote": "Augmentin 625 Duo Tablet 625 mg twice daily",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food.",
+        "medicines": [
+          {
+            "name": "Augmentin 625 Duo Tablet",
+            "molecule": "625 mg",
+            "dose": "625 mg",
+            "frequency": "twice daily",
+            "quote": "Augmentin 625 Duo Tablet 625 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.245,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "amoxycillin + clavulanic acid",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-022",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start metformin.",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start metformin."
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.518,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-023",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.034,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-024",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.905,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-025",
+      "route": "needs_review",
+      "soap": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner."
+      },
+      "medicines": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "dose": "10 mg",
+          "frequency": "at night",
+          "quote": "Start Atorva 10 mg at night",
+          "source": "formulary:Atorva",
+          "medicine_id": "MED58",
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner.",
+        "medicines": [
+          {
+            "name": "Atorva",
+            "molecule": "",
+            "dose": "10 mg",
+            "frequency": "at night",
+            "quote": "Start Atorva 10 mg at night"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 4.139,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-026",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient asked which statin to take.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review."
+      },
+      "medicines": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start a statin",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        },
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient asked which statin to take.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review.",
+        "medicines": [
+          {
+            "name": "statin",
+            "molecule": "",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start a statin"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.007,
+      "stock_expected_vs_actual": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-027",
+      "route": "needs_review",
+      "soap": {
+        "S": "The patient reports they will take the medicine every day as instructed.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "500 mg",
+          "frequency": "roz raat ko",
+          "quote": "Roz raat ko metformin 500 mg lena",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "The patient reports they will take the medicine every day as instructed.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "500 mg",
+            "frequency": "roz raat ko",
+            "quote": "Roz raat ko metformin 500 mg lena"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.72,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-028",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": ""
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "250 mg",
+          "frequency": "twice daily",
+          "quote": "Take metformin 500 mg twice daily—sorry, make that 250 mg twice daily",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "250 mg",
+            "frequency": "twice daily",
+            "quote": "Take metformin 500 mg twice daily—sorry, make that 250 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.586,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-029",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food."
+      },
+      "medicines": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "625 mg",
+          "dose": "625 mg",
+          "frequency": "twice daily",
+          "quote": "Augmentin 625 Duo Tablet 625 mg twice daily",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food.",
+        "medicines": [
+          {
+            "name": "Augmentin 625 Duo Tablet",
+            "molecule": "625 mg",
+            "dose": "625 mg",
+            "frequency": "twice daily",
+            "quote": "Augmentin 625 Duo Tablet 625 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 4.646,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "amoxycillin + clavulanic acid",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-030",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start metformin.",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start metformin."
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.237,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-031",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Use the tablet the patient brought from home; its label is unclear.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.101,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-032",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "The examination is reassuring.",
+        "P": "Continue hydration and return if symptoms worsen."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "The examination is reassuring.",
+        "P": "Continue hydration and return if symptoms worsen.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.002,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-033",
+      "route": "needs_review",
+      "soap": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner."
+      },
+      "medicines": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "dose": "10 mg",
+          "frequency": "at night",
+          "quote": "Start Atorva 10 mg at night",
+          "source": "formulary:Atorva",
+          "medicine_id": "MED58",
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "I take it after dinner.",
+        "O": "",
+        "A": "",
+        "P": "Start Atorva 10 mg at night. Correct, after dinner.",
+        "medicines": [
+          {
+            "name": "Atorva",
+            "molecule": "",
+            "dose": "10 mg",
+            "frequency": "at night",
+            "quote": "Start Atorva 10 mg at night"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 3.839,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Atorva",
+          "molecule": "atorvastatin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-034",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient asked which statin they should start.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review."
+      },
+      "medicines": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start a statin",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        },
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient asked which statin they should start.",
+        "O": "",
+        "A": "I will specify after review.",
+        "P": "Start a statin. I will specify after review.",
+        "medicines": [
+          {
+            "name": "statin",
+            "molecule": "",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start a statin"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.425,
+      "stock_expected_vs_actual": [
+        {
+          "name": "statin",
+          "molecule": "[doctor to specify]",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-035",
+      "route": "needs_review",
+      "soap": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "500 mg",
+          "frequency": "roz raat ko",
+          "quote": "Roz raat ko metformin 500 mg lena",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "in_stock",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "The patient agrees to take the medicine every day.",
+        "O": "",
+        "A": "",
+        "P": "The patient is instructed to take metformin 500 mg every night.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "500 mg",
+            "frequency": "roz raat ko",
+            "quote": "Roz raat ko metformin 500 mg lena"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 3.076,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": "in_stock"
+        }
+      ]
+    },
+    {
+      "id": "w3-036",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take metformin 250 mg twice daily."
+      },
+      "medicines": [
+        {
+          "name": "[doctor to specify]",
+          "molecule": "[doctor to specify]",
+          "dose": "250 mg",
+          "frequency": "twice daily",
+          "quote": "make that 250 mg twice daily",
+          "source": null,
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": null,
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.molecule",
+          "message": "medicine is not supported by a transcript quote"
+        },
+        {
+          "kind": "molecule_unresolved",
+          "field": "medicines.0.molecule",
+          "message": "molecule is not stated; doctor to specify"
+        }
+      ],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take metformin 250 mg twice daily.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "",
+            "dose": "250 mg",
+            "frequency": "twice daily",
+            "quote": "make that 250 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.679,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-037",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food."
+      },
+      "medicines": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "625 mg",
+          "dose": "625 mg",
+          "frequency": "twice daily",
+          "quote": "Augmentin 625 Duo Tablet 625 mg twice daily",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "",
+        "A": "",
+        "P": "Take Augmentin 625 Duo Tablet 625 mg twice daily with food.",
+        "medicines": [
+          {
+            "name": "Augmentin 625 Duo Tablet",
+            "molecule": "625 mg",
+            "dose": "625 mg",
+            "frequency": "twice daily",
+            "quote": "Augmentin 625 Duo Tablet 625 mg twice daily"
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 2.938,
+      "stock_expected_vs_actual": [
+        {
+          "name": "Augmentin 625 Duo Tablet",
+          "molecule": "amoxycillin + clavulanic acid",
+          "expected": "in_stock",
+          "actual": null
+        }
+      ]
+    },
+    {
+      "id": "w3-038",
+      "route": "needs_review",
+      "soap": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin."
+      },
+      "medicines": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "dose": "[doctor to specify]",
+          "frequency": "",
+          "quote": "Start metformin.",
+          "source": "transcript",
+          "medicine_id": null,
+          "status": "unknown",
+          "as_of": "2026-11-02",
+          "alternatives": []
+        }
+      ],
+      "flags": [
+        {
+          "kind": "grounding",
+          "field": "medicines.0.dose",
+          "message": "dose is missing, unsupported, or superseded"
+        }
+      ],
+      "initial_model": {
+        "S": "Patient understood the instruction.",
+        "O": "",
+        "A": "",
+        "P": "Start metformin.",
+        "medicines": [
+          {
+            "name": "metformin",
+            "molecule": "metformin",
+            "dose": "",
+            "frequency": "",
+            "quote": "Start metformin."
+          }
+        ]
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 3.497,
+      "stock_expected_vs_actual": [
+        {
+          "name": "metformin",
+          "molecule": "metformin",
+          "expected": "unknown",
+          "actual": "unknown"
+        }
+      ]
+    },
+    {
+      "id": "w3-039",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "Label of tablet brought from home is unclear.",
+        "A": "",
+        "P": "Use the tablet the patient brought from home."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "Label of tablet brought from home is unclear.",
+        "A": "",
+        "P": "Use the tablet the patient brought from home.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.196,
+      "stock_expected_vs_actual": []
+    },
+    {
+      "id": "w3-040",
+      "route": "needs_review",
+      "soap": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen."
+      },
+      "medicines": [],
+      "flags": [],
+      "initial_model": {
+        "S": "",
+        "O": "The examination is reassuring.",
+        "A": "",
+        "P": "Continue hydration and return if symptoms worsen.",
+        "medicines": []
+      },
+      "clinic_id": "HYD-C01",
+      "latency_s": 1.832,
+      "stock_expected_vs_actual": []
+    }
+  ]
+}

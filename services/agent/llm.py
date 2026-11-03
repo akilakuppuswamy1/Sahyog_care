@@ -23,8 +23,9 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from services.agent.w1.guards import has_identifier, scrub
+from services.agent.w1.guards import scrub
 from services.common.tracing import Tracer
+from services.common.deid import analyzer, prepare_egress, reidentify
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -219,6 +220,7 @@ class OpenRouterLLM:
     _usage_record_ids: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        analyzer()  # Load the local model before request deadlines.
         if self.workflow:
             self.model = os.environ.get(f"OPENROUTER_MODEL_{self.workflow.upper()}") or self.model
             if not self.model and self.workflow.lower() == "w3":
@@ -229,9 +231,7 @@ class OpenRouterLLM:
             raise ModelError("OPENROUTER_MODEL is not set, e.g. a small fast model id from openrouter.ai/models")
 
     def complete_json(self, system: str, user: str, *, purpose: str, trace_id: str) -> dict:
-        user_out, _token_map = scrub(user)          # token map stays here, in-region
-        if has_identifier(user_out):                 # defence in depth: never send if a pattern survives
-            raise ModelError("identifier survived scrubbing; refusing to send")
+        user_out = user
         workflow = (self.workflow or "w1").lower()
         deadline_s = _workflow_seconds(
             "LLM_DEADLINE_S", workflow, {"w1": 8.0, "w2": 6.0, "w3": 20.0}.get(workflow, 6.0)
@@ -328,7 +328,10 @@ class OpenRouterLLM:
                 raise ModelUnavailable(f"all model calls failed{detail}")
 
             until_hedge = max(0.0, hedge_at - now) if not fallback_started else None
-            wait(tuple(futures), timeout=until_hedge if until_hedge is not None else deadline - now,
+            # Completed failures must not turn this into a busy loop that starves
+            # the hedge's local NLP work under the GIL.
+            pending = tuple(future for future in futures if not future.done())
+            wait(pending, timeout=until_hedge if until_hedge is not None else deadline - now,
                  return_when=FIRST_COMPLETED)
 
     def _submit_model(self, slots: _RequestSlots, model: str, user: str, system: str, purpose: str,
@@ -351,9 +354,12 @@ class OpenRouterLLM:
     def _run_model(self, model: str, user: str, system: str, purpose: str, trace_id: str,
                    deadline: float, served_by: str, provider_policy: dict[str, object],
                    slots: _RequestSlots, cancelled: threading.Event) -> tuple[dict, int, float]:
+        system, user, token_map, deid_ms = prepare_egress(system, user)
         if self.tracer is None:
-            return self._run_model_request(model, user, system, purpose, trace_id, deadline,
-                                           served_by, provider_policy, slots, cancelled)
+            answer, record_id, completed_at = self._run_model_request(
+                model, user, system, purpose, trace_id, deadline,
+                served_by, provider_policy, slots, cancelled)
+            return reidentify(answer, token_map), record_id, completed_at
         provider_order = provider_policy.get("order")
         requested_provider = provider_order[0] if isinstance(provider_order, list) and provider_order else None
         workflow = (self.workflow or "w1").lower()
@@ -361,6 +367,7 @@ class OpenRouterLLM:
             first_record_id = self._usage_record_ids
         with self.tracer.span("model", purpose, workflow=workflow, trace_id=trace_id,
                               model=model, provider=requested_provider, served_by=served_by) as span:
+            span.span.deid_ms = round(deid_ms, 3)
             try:
                 result = self._run_model_request(model, user, system, purpose, trace_id, deadline,
                                                  served_by, provider_policy, slots, cancelled)
@@ -378,7 +385,8 @@ class OpenRouterLLM:
                                                    if item["provider"]), None),
                                     tokens_in=sum(item.get("tokens_in", 0) for item in attempts),
                                     tokens_out=sum(item.get("tokens_out", 0) for item in attempts))
-            return result
+            answer, record_id, completed_at = result
+            return reidentify(answer, token_map), record_id, completed_at
 
     def _run_model_request(self, model: str, user: str, system: str, purpose: str, trace_id: str,
                            deadline: float, served_by: str, provider_policy: dict[str, object],

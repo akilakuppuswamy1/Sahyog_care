@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from typing import TypedDict
 
 from services.agent.llm import JsonLLM, ModelError
-from services.agent.w1.guards import scrub
 from services.agent.w1.redflags import evaluate
 from services.agent.w3.formulary import PLACEHOLDER, Formulary, default_formulary, split_name
 from services.agent.w3.stock import StockSource
@@ -79,8 +78,12 @@ def intake(s: W3State, store: W3Store) -> W3State:
 
 
 def scrub_transcript(s: W3State) -> W3State:
-    cleaned, _token_map = scrub(s["transcript"])
-    return {"transcript": cleaned}
+    """Retain local source for grounding; the egress adapter owns scrub/restoration.
+
+    Discarding a token map here would make the model's answer impossible to restore.
+    No token map belongs in checkpointed graph state.
+    """
+    return {"transcript": s["transcript"]}
 
 
 def red_flag_rules(s: W3State) -> W3State:

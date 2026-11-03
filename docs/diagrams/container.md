@@ -15,10 +15,10 @@ flowchart TB
         PG[(Postgres 16 + pgvector + W1 checkpointer + trace_span - built)]
         EMB[Local bge-m3 - built; HashEmbedder in tests]
         ING[PDF upload and background ingest - built]
-        EG[Egress adapter - built regex scrub + refuse-to-send]
+        EG[Egress adapter - Presidio + regex refusal + local restoration]
         AUD[Audit - built explicit writes + append-only trigger + access view]
         TRACE[Tracing - built exporter interface; Postgres in-region]
-        PHI[Presidio and re-identification - planned Pro]
+        PHI[Local ephemeral token maps - built]
         QUEUE[Durable ingest - built; W3 timeout scheduling - planned Pro]
         REDIS[Gateway and Redis distributed limits - planned Architect]
         CRYPTO[Encryption at rest and DB least-privilege roles - planned Architect]
@@ -37,13 +37,13 @@ flowchart TB
         GRAPH --> TRACE
         TRACE --> PG
         AUD --> PG
-        PHI -.-> EG
+        PHI --> EG
         ING -.-> QUEUE
         RL -.-> REDIS
         CRYPTO -.-> PG
         GRAPH -.-> SMS
     end
-    EG -->|Scrubbed text only - regex coverage limited| OR[OpenRouter - external integration built]
+    EG -->|Typed tokens only| OR[OpenRouter - external integration built]
 ```
 
 Only W1 is wired to `PostgresSaver` in the production factory; W2 is request-scoped without a
@@ -52,3 +52,5 @@ the trace-to-patient mapping. The exporter interface permits a future self-hoste
 Langfuse Cloud is rejected for residency. Uploads are local files, not a built object store. Audit is
 not an automatic database read interceptor. Planned tier allocations here and in D7 are delivery
 targets, not implemented guarantees.
+
+The adapter uses pinned local en_core_web_sm and custom Indian recognisers for W1/W2/W3, including hedges. Maps never leave process memory; replies restore locally. Migration 011 stores numeric deid_ms only. Replay egress-20261103-010825 reports zero hits in 200 synthetic payloads; statistical names/quasi-identifiers remain residual risks.

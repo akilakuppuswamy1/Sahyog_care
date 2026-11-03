@@ -199,7 +199,7 @@ def build_trace_tree(deps, trace_id: str) -> dict | None:
         by_id[span["span_id"]] = {
             key: span[key] for key in ("trace_id", "span_id", "parent_span_id", "workflow", "name",
                                        "kind", "started_at", "duration_ms", "status", "model",
-                                       "provider", "served_by", "tokens_in", "tokens_out", "error_type")
+                                       "provider", "served_by", "tokens_in", "tokens_out", "error_type", "deid_ms")
         }
         by_id[span["span_id"]]["children"] = []
     roots = []

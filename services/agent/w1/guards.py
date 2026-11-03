@@ -3,10 +3,9 @@
 Input layer : scrub identifiers before text leaves the boundary (ADR-001).
 Output layer: patient-facing text never names a diagnosis or a dose (E1-4).
 
-Core tier uses regex scrubbing for the identifiers that appear in symptom text: Indian mobile numbers,
-emails, ABHA numbers, Aadhaar-like 12-digit numbers. The Presidio pipeline (names) is wired at Pro, when
-free-text records go out. A W1 intake rarely names anyone, but when it does the name stays in and
-that is a known Core-tier gap, recorded in the pre-mortem (row 9).
+These legacy regexes remain the independent second-line refusal check in the Pro
+egress adapter. Production de-identification and local reply restoration live in
+services.common.deid; scrub() is retained for older callers and scripted tests.
 """
 from __future__ import annotations
 

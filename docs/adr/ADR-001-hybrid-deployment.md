@@ -23,11 +23,13 @@ decision: Option 3, hybrid.
       as defence in depth, but the residency risk is retired.
   (c) The egress replay of 200 payloads finds any identifier. Then egress stops until the recogniser is fixed.
 consequences:
-  - The scrubber is now safety-critical code with its own eval: 200-payload replay, zero hits (D7, O5).
-  - Every model call pays scrub and re-identify latency (budget about 50 ms per call; measured on day 7).
+  - Built: services/common/deid.py uses Presidio + local spaCy and custom Indian recognisers on both messages, including every hedge. Offline replay egress-20261103-010825: 200 synthetic payloads, zero hits, recall 1.0 per generated type, clean clinical false-positive rate 0.0. Trigger c fails the replay command on any hit/refusal; stop egress until fixed.
+  - Local token maps never enter transport, logs, spans or checkpoints; JSON replies are restored in-region before workflow display. W3 retains its original local transcript for grounding.
+  - Measured warm replay deid p95 8.5 ms (median 7.2 ms), against about 50 ms; max including first-use 17 ms. NLP loads at adapter startup; numeric deid_ms is stored on primary/hedge model spans (migration 011).
+  - Name recognition remains statistical; arbitrary quasi-identifier generalisation and vendor retention/residency verification remain deployment work.
   - Two places to operate. Mitigated by keeping the LLM side stateless: no data stored outside.
   - The vendor swap is one adapter change, so the CIO's lock-in fear (p.7) is answered by design.
-versions_pinned: presidio-analyzer==2.2.364 (pack p.39, checked by the pack on 2026-10-21; re-check on install)
-checked_on: 2026-11-02
+versions_pinned: presidio-analyzer==2.2.364; spacy==3.8.18; en_core_web_sm==3.8.0 (installed locally)
+checked_on: 2026-11-03
 status: proposed
 ```

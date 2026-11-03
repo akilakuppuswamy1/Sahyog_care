@@ -62,7 +62,7 @@ def test_postgres_pick_slot_resume_and_replay(monkeypatch):
                 seed.execute(re.sub(r"^\s*(BEGIN|COMMIT);\s*$", "", sql, flags=re.M))
                 seed.execute((Path(__file__).resolve().parents[3] / "infra/db/006_w1_requests.sql").read_text())
                 seed.execute((Path(__file__).resolve().parents[3] / "infra/db/007_tracing.sql").read_text())
-                for migration in ("008_w3_drafts.sql", "009_w3_draft_version_retry.sql", "010_w3_api.sql"):
+                for migration in ("008_w3_drafts.sql", "009_w3_draft_version_retry.sql", "010_w3_api.sql", "011_deid_timing.sql"):
                     seed.execute((Path(__file__).resolve().parents[3] / "infra/db" / migration).read_text())
                 seed.execute("""
                     INSERT INTO clinic VALUES ('C1','Test Clinic','Pune','hospital','Pune','08:00','20:00',true,true);
