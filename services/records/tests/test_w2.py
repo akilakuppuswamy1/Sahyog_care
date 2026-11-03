@@ -115,6 +115,11 @@ def test_hinglish_and_page_hints_normalize_during_retrieval(chunks):
     assert page_hits and all(hit.page == 2 for hit in page_hits)
     assert page_hits[0].doc_id == "DOC-W2-0001-VITD"
     assert sgpt_hits and sgpt_hits[0].doc_id == "DOC-W2-0003-LFT" and sgpt_hits[0].kscore > 0
+    assert "aur" not in query_terms("SGPT ki value aur reference interval kya hai?")
+    assert "reference" in query_terms("SGPT ki value aur reference interval kya hai?")
+    assert coverage("SGPT ki value aur reference interval kya hai?", sgpt_hits[0].text) > n.COVERAGE_MIN
+    assert n.grade({"question": "SGPT ki value aur reference interval kya hai?",
+                    "hits": [{"vscore": sgpt_hits[0].vscore, "text": sgpt_hits[0].text}]}) == "answer"
     assert "nikla" not in query_terms("Mera Hb kitna nikla?")
 
 
@@ -150,6 +155,11 @@ def test_doctor_rules(q, expect):
 ])
 def test_diagnosis_intent_goes_to_doctor(question):
     assert rules.needs_doctor(question)
+
+
+def test_w2_pro_043_question_routes_to_handoff_doctor(tools):
+    s = run(_ask(P3, P3, "Does this prove I have cirrhosis?"), tools)
+    assert s["route"] == "handoff_doctor"
 
 
 @pytest.mark.parametrize("question", [
@@ -209,6 +219,23 @@ def test_invented_number_falls_back_to_the_record_itself(tools):
     assert not s["verified"] and "9.8" not in s["reply"] and n.VERIFY_FALLBACK in s["reply"]
 
 
+def test_w2_pro_003_absence_claim_falls_back_to_present_tsh(tools):
+    question = "TSH report ke second page par kitna hai?"
+    answer_text = ("TSH ke second page par kitna hai nahi hai. TSH value 2.1 uIU/mL hai, "
+                   "jo reference range (0.4-4.0) ke andar hai.")
+    hit = next(h for h in tools.retriever.chunks
+               if h["doc_id"] == "DOC-W2-0001-VITD" and h["page"] == 2 and "TSH" in h["text"])
+    checked = n.verify({"subject_id": P1, "question": question, "hits": [hit],
+                        "citations": [hit["chunk_id"]], "verified": True, "answer": answer_text})
+
+    assert n.PROMPT_VERSION == "w2-prompts-v4"
+    assert "Never claim that it is absent" in n.ANSWER_SYSTEM
+    assert checked["verified"] is False
+    assert n.VERIFY_FALLBACK in checked["reply"]
+    assert "nahi hai" not in checked["reply"]
+    assert "2.1" in checked["reply"]
+
+
 def test_diagnosis_wording_falls_back(tools):
     llm = ScriptedLLM({"w2.answer": {"answer": "You probably have anaemia; Hb 11.2 [E1][E2].", "citations": ["E1", "E2"],
                                      "insufficient": False}})
@@ -218,7 +245,8 @@ def test_diagnosis_wording_falls_back(tools):
 
 def test_saved_w2_pro_041_reply_falls_back(tools):
     text = ("HbA1c aapka 8.1% hai, jo reference range (5.7% se neeche) se upar hai, isliye high hai. "
-            "Fasting blood glucose bhi 156 mg/dL (70-100 mg/dL) se upar hai, jo diabetes ke liye confirm karta hai.")
+            "Fasting blood glucose bhi 156 mg/dL (70-100 mg/dL) se upar hai, jo diabetes ke liye confirm karta hai."
+            "\n\nSources: Diabetes and Lipid Profile, 2026-10-20, page 1")
     hit = {
         "chunk_id": "w2-diagnosis-guard",
         "doc_id": "DOC-W2-0002-HBA1C",

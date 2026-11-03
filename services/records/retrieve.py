@@ -25,6 +25,7 @@ ABBREVIATIONS = {
     "kidney": ["creatinine", "urea"], "vit": ["vitamin"], "xray": ["x-ray", "findings"],
     "x-ray": ["findings", "impression"], "knee": ["knee", "joint"], "ecg": ["sinus", "rhythm", "heart"],
     "heart": ["ecg", "sinus", "rhythm"], "ultrasound": ["liver", "echogenicity"], "sonography": ["liver"],
+    "interval": ["reference"],
     # Hinglish
     "khoon": ["haemoglobin", "blood"], "sharkar": ["glucose"], "shakkar": ["glucose"], "cheeni": ["glucose"],
     "ghutna": ["knee"], "ghutne": ["knee"], "jigar": ["liver"], "dil": ["heart", "ecg"],
@@ -32,6 +33,7 @@ ABBREVIATIONS = {
 STOP = {"is", "my", "the", "a", "an", "of", "in", "what", "was", "are", "do", "does", "i", "me", "kya", "hai",
         "mera", "meri", "mere", "kam", "zyada", "ka", "ki", "ke", "how", "and", "or", "to", "it", "report", "test",
         "kitna", "kitni", "kitne", "aaya", "aayi", "batao", "bataiye", "mummy", "papa", "maa", "mother", "mothers",
+        "aur",
         "father", "fathers", "her", "his", "level", "levels", "value", "values", "result", "results", "show",
         "shows", "say", "says", "tell", "normal", "okay", "ok", "low", "high", "please", "can", "you", "latest",
         "last", "nikla", "nikli", "nikle", "second", "2nd", "page", "first", "1st", "third", "3rd",

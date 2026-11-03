@@ -86,6 +86,25 @@ def test_judge_contract_and_independence(monkeypatch):
         FaithfulnessJudge(["answer-model"], llm=fake)
 
 
+def test_judge_strips_only_trailing_sources_footer(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_MODEL_JUDGE", "judge-model")
+    class Fake:
+        def complete_json(self, system, user, **kwargs):
+            self.payload = json.loads(user)
+            return {"score": 1, "reason": "Supported."}
+
+    fake = Fake()
+    judge = FaithfulnessJudge(["answer-model"], llm=fake)
+    answer = ("The report says Sources: may contain useful wording [E1].\n\n"
+              "Sources: Diabetes and Lipid Profile, 2026-10-20, page 1")
+    judge.score("What is the value?", ["HbA1c: 8.1%"], answer, trace_id="test")
+    assert fake.payload == {
+        "question": "What is the value?",
+        "excerpts": ["HbA1c: 8.1%"],
+        "answer": "The report says Sources: may contain useful wording [E1].",
+    }
+
+
 @pytest.mark.parametrize("kappa,certified", [(.59, False), (.6, True), (None, False)])
 def test_report_calibration_gate(tmp_path, kappa, certified):
     meta = {"run_id": "20260101", "judge_model": "judge", "judge_prompt_version": PROMPT_VERSION}
@@ -104,6 +123,23 @@ def test_report_calibration_gate(tmp_path, kappa, certified):
     calibration["meta"]["judge_model"] = "different"
     assert "not calibrated" in faithfulness_status(run, [calibration])
     assert faithfulness_status({"metrics": {}}, []) == "not measured"
+
+
+def test_report_includes_matching_human_judge_review(tmp_path):
+    run_id = "20261103-094651"
+    (tmp_path / f"w2-{run_id}.json").write_text(json.dumps({
+        "meta": {"run_id": run_id, "mode": "graph", "model": "answer-model",
+                 "judge_prompt_version": PROMPT_VERSION, "judge_model": "judge-model"},
+        "metrics": {"judge_score": .76, "latency_p95_s": 2.0},
+    }), encoding="utf-8")
+    (tmp_path / f"judge-review-{run_id}.md").write_text(
+        "# Judge-zero review\n\nHuman review: 1 real / 8 judge errors\n", encoding="utf-8")
+
+    report = build_report(tmp_path)
+
+    summary = f"human review of judge-0 cases: 1 real / 8 judge errors ({run_id})"
+    assert summary in report
+    assert report.count(summary) == 2
 
 
 def test_holdout_is_exact_pod_labelled_round_two_set():
